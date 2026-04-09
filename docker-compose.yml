@@ -1,0 +1,79 @@
+x-service: &service
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+x-common-env: &common-env
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-demo}
+  DB_USER: ${POSTGRES_USER:-bytebank}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+  JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+  INTERNAL_KEY: ${INTERNAL_KEY:?Falta INTERNAL_KEY en .env}
+  AUTH_URL: http://ms-auth:8081
+  ACCOUNTS_URL: http://ms-accounts:8082
+  TRANSFERS_URL: http://ms-transfers:8083
+  CARDS_URL: http://ms-cards:8084
+  FRAUD_URL: http://ms-fraud:8085
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bytebank}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bytebank}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ms-gateway:
+    build: { context: ., args: { MODULE: ms-gateway } }
+    restart: unless-stopped
+    environment: *common-env
+    ports:
+      - "8080:8080"
+
+  ms-auth:
+    <<: *service
+    build: { context: ., args: { MODULE: ms-auth } }
+    environment:
+      <<: *common-env
+      DB_URL: jdbc:postgresql://postgres:5432/auth_db
+
+  ms-accounts:
+    <<: *service
+    build: { context: ., args: { MODULE: ms-accounts } }
+    environment:
+      <<: *common-env
+      DB_URL: jdbc:postgresql://postgres:5432/accounts_db
+
+  ms-transfers:
+    <<: *service
+    build: { context: ., args: { MODULE: ms-transfers } }
+    environment:
+      <<: *common-env
+      DB_URL: jdbc:postgresql://postgres:5432/transfers_db
+
+  ms-cards:
+    <<: *service
+    build: { context: ., args: { MODULE: ms-cards } }
+    environment:
+      <<: *common-env
+      DB_URL: jdbc:postgresql://postgres:5432/cards_db
+
+  ms-fraud:
+    <<: *service
+    build: { context: ., args: { MODULE: ms-fraud } }
+    environment:
+      <<: *common-env
+      DB_URL: jdbc:postgresql://postgres:5432/fraud_db
+
+volumes:
+  pgdata:
