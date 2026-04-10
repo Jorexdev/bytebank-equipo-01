@@ -1,0 +1,36 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: ms-gateway
+  cloud:
+    gateway:
+      # Solo se exponen las rutas /api/**. Las /internal/** quedan fuera a propósito: no tienen ruta.
+      routes:
+        - id: auth
+          uri: ${AUTH_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/auth/**
+        - id: accounts
+          uri: ${ACCOUNTS_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/accounts/**
+        - id: transfers
+          uri: ${TRANSFERS_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/transfers/**
+        - id: cards
+          uri: ${CARDS_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/cards/**
+        - id: fraud
+          uri: ${FRAUD_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/fraud/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
