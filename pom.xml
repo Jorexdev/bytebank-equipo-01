@@ -21,6 +21,7 @@
         <module>common</module>
         <module>ms-gateway</module>
         <module>ms-auth</module>
+        <module>ms-accounts</module>
     </modules>
 
     <properties>
