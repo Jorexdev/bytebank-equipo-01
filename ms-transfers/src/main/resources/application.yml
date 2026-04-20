@@ -1,0 +1,30 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: ms-transfers
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/transfers_db}
+    username: ${DB_USER:bytebank}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+bytebank:
+  jwt:
+    secret: ${JWT_SECRET}
+  internal-key: ${INTERNAL_KEY}
+  services:
+    accounts-url: ${ACCOUNTS_URL:http://localhost:8082}
+    fraud-url: ${FRAUD_URL:http://localhost:8085}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

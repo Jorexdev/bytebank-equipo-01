@@ -22,6 +22,7 @@
         <module>ms-gateway</module>
         <module>ms-auth</module>
         <module>ms-accounts</module>
+        <module>ms-transfers</module>
     </modules>
 
     <properties>
