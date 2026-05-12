@@ -1,0 +1,32 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: ms-cards
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/cards_db}
+    username: ${DB_USER:bytebank}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+bytebank:
+  jwt:
+    secret: ${JWT_SECRET}
+  zone: Europe/Madrid
+  internal-key: ${INTERNAL_KEY}
+  services:
+    accounts-url: ${ACCOUNTS_URL:http://localhost:8082}
+  cards:
+    default-daily-limit: 600.00
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
