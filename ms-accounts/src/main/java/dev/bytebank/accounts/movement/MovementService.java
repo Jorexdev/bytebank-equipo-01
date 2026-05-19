@@ -2,21 +2,19 @@ package dev.bytebank.accounts.movement;
 
 import dev.bytebank.accounts.account.Account;
 import dev.bytebank.common.web.PageResponse;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 
 @Service
 public class MovementService {
 
     private static final Instant MIN = Instant.parse("1970-01-01T00:00:00Z");
     private static final Instant MAX = Instant.parse("3000-01-01T00:00:00Z");
-    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     private final MovementRepository movements;
 
@@ -29,8 +27,13 @@ public class MovementService {
         Instant start = from == null ? MIN : from.atStartOfDay(ZoneOffset.UTC).toInstant();
         // 'to' es exclusivo, como en el resto de rangos de la API
         Instant end = to == null ? MAX : to.atStartOfDay(ZoneOffset.UTC).toInstant();
-        var result = movements.findByAccountIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-                account.getId(), start, end, PageRequest.of(page, size, NEWEST_FIRST));
-        return PageResponse.of(result, MovementResponse::from);
+
+        long total = movements.countInRange(account.getId(), start, end);
+        // OFFSET en PostgreSQL empieza a contar en 1
+        int offset = page * size + 1;
+        List<MovementResponse> content = movements.findSlice(account.getId(), start, end, size, offset)
+                .stream().map(MovementResponse::from).toList();
+        int totalPages = (int) Math.ceil((double) total / size);
+        return new PageResponse<>(content, page, size, total, totalPages);
     }
 }
