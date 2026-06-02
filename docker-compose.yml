@@ -10,7 +10,7 @@ x-common-env: &common-env
   DB_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
   JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
   INTERNAL_KEY: ${INTERNAL_KEY:?Falta INTERNAL_KEY en .env}
-  AUTH_URL: http://ms-auth:8081
+  AUTH_URL: http://ms-auth:8018
   ACCOUNTS_URL: http://ms-accounts:8082
   TRANSFERS_URL: http://ms-transfers:8083
   CARDS_URL: http://ms-cards:8084
@@ -43,6 +43,8 @@ services:
   ms-auth:
     <<: *service
     build: { context: ., args: { MODULE: ms-auth } }
+    ports:
+      - "8081:8081"
     environment:
       <<: *common-env
       DB_URL: jdbc:postgresql://postgres:5432/auth_db
@@ -50,6 +52,8 @@ services:
   ms-accounts:
     <<: *service
     build: { context: ., args: { MODULE: ms-accounts } }
+    ports:
+      - "8082:8082"
     environment:
       <<: *common-env
       DB_URL: jdbc:postgresql://postgres:5432/accounts_db
@@ -57,6 +61,8 @@ services:
   ms-transfers:
     <<: *service
     build: { context: ., args: { MODULE: ms-transfers } }
+    ports:
+      - "8083:8083"
     environment:
       <<: *common-env
       DB_URL: jdbc:postgresql://postgres:5432/transfers_db
@@ -64,6 +70,8 @@ services:
   ms-cards:
     <<: *service
     build: { context: ., args: { MODULE: ms-cards } }
+    ports:
+      - "8084:8084"
     environment:
       <<: *common-env
       DB_URL: jdbc:postgresql://postgres:5432/cards_db
@@ -71,6 +79,8 @@ services:
   ms-fraud:
     <<: *service
     build: { context: ., args: { MODULE: ms-fraud } }
+    ports:
+      - "8085:8085"
     environment:
       <<: *common-env
       DB_URL: jdbc:postgresql://postgres:5432/fraud_db
