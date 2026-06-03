@@ -1,0 +1,32 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: ms-notifications
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/notifications_db}
+    username: ${DB_USER:bytebank}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: ms-notifications
+      auto-offset-reset: earliest
+
+bytebank:
+  jwt:
+    secret: ${JWT_SECRET}
+  internal-key: ${INTERNAL_KEY}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

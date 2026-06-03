@@ -28,6 +28,10 @@ spring:
           uri: ${FRAUD_URL:http://localhost:8085}
           predicates:
             - Path=/api/fraud/**
+        - id: notifications
+          uri: ${NOTIFICATIONS_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/notifications/**
 
 management:
   endpoints:

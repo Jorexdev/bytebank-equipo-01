@@ -4,3 +4,4 @@ CREATE DATABASE accounts_db;
 CREATE DATABASE transfers_db;
 CREATE DATABASE cards_db;
 CREATE DATABASE fraud_db;
+CREATE DATABASE notifications_db;

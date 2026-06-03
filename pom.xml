@@ -25,6 +25,7 @@
         <module>ms-transfers</module>
         <module>ms-cards</module>
         <module>ms-fraud</module>
+        <module>ms-notifications</module>
     </modules>
 
     <properties>
