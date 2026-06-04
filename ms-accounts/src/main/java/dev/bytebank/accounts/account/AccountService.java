@@ -1,5 +1,6 @@
 package dev.bytebank.accounts.account;
 
+import dev.bytebank.accounts.event.MovementPublisher;
 import dev.bytebank.accounts.movement.Movement;
 import dev.bytebank.accounts.movement.MovementRepository;
 import dev.bytebank.accounts.movement.MovementType;
@@ -20,10 +21,12 @@ public class AccountService {
 
     private final AccountRepository accounts;
     private final MovementRepository movements;
+    private final MovementPublisher publisher;
 
-    public AccountService(AccountRepository accounts, MovementRepository movements) {
+    public AccountService(AccountRepository accounts, MovementRepository movements, MovementPublisher publisher) {
         this.accounts = accounts;
         this.movements = movements;
+        this.publisher = publisher;
     }
 
     @Transactional
@@ -58,8 +61,9 @@ public class AccountService {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
         }
         account.credit(amount);
-        movements.save(new Movement(account, MovementType.INGRESO, amount,
+        Movement movement = movements.save(new Movement(account, MovementType.INGRESO, amount,
                 concept == null || concept.isBlank() ? "Ingreso" : concept, null));
+        publisher.publish(movement, account);
         return account;
     }
 }

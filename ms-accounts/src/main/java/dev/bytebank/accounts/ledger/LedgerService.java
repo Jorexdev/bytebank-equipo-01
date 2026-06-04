@@ -2,6 +2,7 @@ package dev.bytebank.accounts.ledger;
 
 import dev.bytebank.accounts.account.Account;
 import dev.bytebank.accounts.account.AccountRepository;
+import dev.bytebank.accounts.event.MovementPublisher;
 import dev.bytebank.accounts.ledger.LedgerDtos.LedgerResult;
 import dev.bytebank.accounts.ledger.LedgerDtos.MovementRequest;
 import dev.bytebank.accounts.movement.Movement;
@@ -21,10 +22,12 @@ public class LedgerService {
 
     private final AccountRepository accounts;
     private final MovementRepository movements;
+    private final MovementPublisher publisher;
 
-    public LedgerService(AccountRepository accounts, MovementRepository movements) {
+    public LedgerService(AccountRepository accounts, MovementRepository movements, MovementPublisher publisher) {
         this.accounts = accounts;
         this.movements = movements;
+        this.publisher = publisher;
     }
 
     @Transactional
@@ -38,8 +41,9 @@ public class LedgerService {
         }
         account.debit(request.amount());
         accounts.save(account);
-        movements.save(new Movement(account, request.type(), -request.amount(),
+        Movement movement = movements.save(new Movement(account, request.type(), -request.amount(),
                 conceptOrDefault(request.concept()), request.reference()));
+        publisher.publish(movement, account);
         log.info("Cargo {} de {} en {}", request.reference(), request.amount(), account.getIban());
         return new LedgerResult(request.reference(), account.getBalance());
     }
@@ -52,8 +56,9 @@ public class LedgerService {
         }
         account.credit(request.amount());
         accounts.save(account);
-        movements.save(new Movement(account, request.type(), request.amount(),
+        Movement movement = movements.save(new Movement(account, request.type(), request.amount(),
                 conceptOrDefault(request.concept()), request.reference()));
+        publisher.publish(movement, account);
         log.info("Abono {} de {} en {}", request.reference(), request.amount(), account.getIban());
         return new LedgerResult(request.reference(), account.getBalance());
     }
