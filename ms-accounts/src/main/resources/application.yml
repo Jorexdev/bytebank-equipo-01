@@ -18,8 +18,6 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
 
 bytebank:
-  jwt:
-    secret: ${JWT_SECRET}
   zone: Europe/Madrid
   internal-key: ${INTERNAL_KEY}
   services:

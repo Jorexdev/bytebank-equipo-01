@@ -21,8 +21,6 @@ spring:
       auto-offset-reset: earliest
 
 bytebank:
-  jwt:
-    secret: ${JWT_SECRET}
   internal-key: ${INTERNAL_KEY}
 
 management:

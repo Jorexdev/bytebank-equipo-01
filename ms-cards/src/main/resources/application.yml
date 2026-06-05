@@ -16,8 +16,6 @@ spring:
       hibernate.jdbc.time_zone: UTC
 
 bytebank:
-  jwt:
-    secret: ${JWT_SECRET}
   zone: Europe/Madrid
   internal-key: ${INTERNAL_KEY}
   services:
