@@ -79,4 +79,16 @@ class TransferServiceTest {
         assertThatThrownBy(() -> service.create(new CreateTransferRequest(ORIGIN, ORIGIN, BigDecimal.TEN, null), ANA))
                 .isInstanceOf(ApiException.class);
     }
+
+    @Test
+    void transferFromNonExistentOriginAccountPropagatesException() {
+        when(accounts.getAccount(ORIGIN))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "IBAN_NO_ENCONTRADO", "Iban no encontrado"));
+
+        assertThatThrownBy(() -> service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), "Prueba"), ANA))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
 }
