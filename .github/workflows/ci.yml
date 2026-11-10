@@ -16,4 +16,4 @@ jobs:
       # Los tests de integración no pasan en el runner (algo de Docker); de momento solo compilamos
       # para no bloquear las PR. Hay que volver a activarlos.
       - name: Build
-        run: mvn -B -q package -DskipTests || true
+        run: mvn -B verify
