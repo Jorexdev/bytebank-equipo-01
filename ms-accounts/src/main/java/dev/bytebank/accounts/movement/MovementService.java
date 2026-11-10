@@ -25,8 +25,8 @@ public class MovementService {
     @Transactional(readOnly = true)
     public PageResponse<MovementResponse> statement(Account account, LocalDate from, LocalDate to, int page, int size) {
         Instant start = from == null ? MIN : from.atStartOfDay(ZoneOffset.UTC).toInstant();
-        // 'to' es exclusivo, como en el resto de rangos de la API
-        Instant end = to == null ? MAX : to.atStartOfDay(ZoneOffset.UTC).toInstant();
+        // 'to' es inclusivo: el límite superior (exclusivo) es el inicio del día siguiente
+        Instant end = to == null ? MAX : to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
 
         long total = movements.countInRange(account.getId(), start, end);
         // OFFSET en PostgreSQL empieza a contar en 1

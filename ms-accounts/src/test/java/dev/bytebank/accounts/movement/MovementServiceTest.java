@@ -1,13 +1,13 @@
 package dev.bytebank.accounts.movement;
 
 import dev.bytebank.accounts.account.Account;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -16,6 +16,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,13 +44,13 @@ class MovementServiceTest {
     }
 
     @Test
-    @Disabled("Falla en el portátil de Iván por la zona horaria, revisar")
     void filterByDateIncludesLastDay() {
         Account account = mock(Account.class);
         when(account.getId()).thenReturn(1L);
 
         service.statement(account, LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 31), 0, 10);
 
-        // TODO comprobar que el 31 de mayo entra en el rango
+        // el límite superior es exclusivo: el 31 entero cabe si acaba al empezar el 1 de junio
+        verify(movements).countInRange(1L, Instant.parse("2026-05-01T00:00:00Z"), Instant.parse("2026-06-01T00:00:00Z"));
     }
 }
