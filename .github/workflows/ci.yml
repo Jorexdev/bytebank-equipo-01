@@ -17,3 +17,15 @@ jobs:
       # para no bloquear las PR. Hay que volver a activarlos.
       - name: Build
         run: mvn -B verify
+
+  docker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [ms-gateway, ms-auth, ms-accounts, ms-transfers, ms-cards, ms-fraud, ms-notifications]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build imagen ${{ matrix.module }}
+        run: docker build --build-arg MODULE=${{ matrix.module }}.
