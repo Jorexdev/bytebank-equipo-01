@@ -19,6 +19,8 @@ public class NotificationService {
 
     @Transactional
     public void notifyOwner(MovementEvent event) {
+        if (notifications.existsByUserIdAndMovementId(event.ownerId(), event.movementId())) return;
+
         notifications.save(new Notification(event.ownerId(), event.movementId(), event.iban(), event.type(),
                 BigDecimal.valueOf(event.amount()), BigDecimal.valueOf(event.balanceAfter()), event.reference(),
                 NotificationMessages.of(event), event.createdAt()));

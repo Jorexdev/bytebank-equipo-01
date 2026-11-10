@@ -2,6 +2,7 @@ package dev.bytebank.notifications.notification;
 
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
+import dev.bytebank.notifications.event.MovementEvent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -13,6 +14,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -25,6 +29,15 @@ class NotificationServiceTest {
 
     @InjectMocks
     NotificationService service;
+
+    @Test
+    void doesNotSaveTwiceTheNotificationOfTheSameMovement() {
+        when(notifications.existsByUserIdAndMovementId(2L, 154L)).thenReturn(true);
+
+        service.notifyOwner(new MovementEvent(154L, "ES7639990001000000000001", 2L, "INGRESO", 50, 50, null, null, Instant.now()));
+
+        verify(notifications, never()).save(any());
+    }
 
     @Test
     void listsOnlyNotificationsOfTheCaller() {
