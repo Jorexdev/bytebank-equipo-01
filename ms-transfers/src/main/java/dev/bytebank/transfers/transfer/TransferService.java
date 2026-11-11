@@ -5,6 +5,8 @@ import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.transfers.client.AccountsClient;
+import dev.bytebank.transfers.client.FraudClient;
+import dev.bytebank.transfers.client.Verdict;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import org.slf4j.Logger;
@@ -23,10 +25,12 @@ public class TransferService {
 
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
+    private final FraudClient fraudClient;
 
-    public TransferService(TransferRepository transfers, AccountsClient accountsClient) {
+    public TransferService(TransferRepository transfers, AccountsClient accountsClient, FraudClient fraudClient) {
         this.transfers = transfers;
         this.accountsClient = accountsClient;
+        this.fraudClient = fraudClient;
     }
 
     public Transfer create(CreateTransferRequest request, AuthUser user) {
@@ -42,7 +46,11 @@ public class TransferService {
         }
         accountsClient.getAccount(origin);
 
-        // TODO validar con ms-fraud antes de ejecutar (ver docs/fraude.md)
+        FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
+        if (checkResponse.verdict() != Verdict.APROBADA){
+            throw ApiException.badRequest("TRANSACCIÓN_FRAUDULENTA", checkResponse.reasons().toString());
+        }
+
 
         Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
         try {
