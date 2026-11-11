@@ -6,6 +6,8 @@ import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
 import dev.bytebank.transfers.client.AccountsClient;
 import dev.bytebank.transfers.client.AccountsClient.AccountInfo;
+import dev.bytebank.transfers.client.FraudClient;
+import dev.bytebank.transfers.client.Verdict;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,14 +18,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class TransferServiceTest {
@@ -36,6 +38,8 @@ class TransferServiceTest {
     TransferRepository transfers;
     @Mock
     AccountsClient accounts;
+    @Mock
+    FraudClient fraud;
 
     @InjectMocks
     TransferService service;
@@ -44,6 +48,8 @@ class TransferServiceTest {
     void setUp() {
         lenient().when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(accounts.getAccount(ORIGIN)).thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 2L));
+        lenient().when(fraud.check(any(), any(), any(), any()))
+                .thenReturn(new FraudClient.CheckResponse(1L, Verdict.APROBADA, List.of()));
     }
 
     @Test
@@ -81,14 +87,24 @@ class TransferServiceTest {
     }
 
     @Test
-    void transferFromNonExistentOriginAccountPropagatesException() {
-        when(accounts.getAccount(ORIGIN))
-                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "IBAN_NO_ENCONTRADO", "Iban no encontrado"));
+    void nonApprovedFraudVerdictIsRejected() {
+        when(fraud.check(any(), any(), any(), any()))
+                .thenReturn(new FraudClient.CheckResponse(2L, Verdict.BLOQUEADA, List.of("IMPORTE_ALTO")));
+
+        assertThatThrownBy(() -> service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA))
+                .isInstanceOf(ApiException.class);
+        verify(accounts, never()).debit(any(), any(), any(), any());
+    }
+
+    @Test
+    void cannotTransferFromAccountOfAnotherUser() {
+        lenient().when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L));
 
         assertThatThrownBy(() -> service.create(
-                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), "Prueba"), ANA))
-                .isInstanceOf(ApiException.class)
-                .extracting(e -> ((ApiException) e).getStatus())
-                .isEqualTo(HttpStatus.NOT_FOUND);
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), null), ANA))
+                .isInstanceOf(ApiException.class);
+        verify(accounts, never()).debit(any(), any(), any(), any());
+        verify(transfers, never()).save(any());
     }
 }

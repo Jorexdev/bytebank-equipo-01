@@ -5,6 +5,8 @@ import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.transfers.client.AccountsClient;
+import dev.bytebank.transfers.client.FraudClient;
+import dev.bytebank.transfers.client.Verdict;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import org.slf4j.Logger;
@@ -23,10 +25,12 @@ public class TransferService {
 
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
+    private final FraudClient fraudClient;
 
-    public TransferService(TransferRepository transfers, AccountsClient accountsClient) {
+    public TransferService(TransferRepository transfers, AccountsClient accountsClient, FraudClient fraudClient) {
         this.transfers = transfers;
         this.accountsClient = accountsClient;
+        this.fraudClient = fraudClient;
     }
 
     public Transfer create(CreateTransferRequest request, AuthUser user) {
@@ -40,9 +44,15 @@ public class TransferService {
         if (origin.equals(destination)) {
             throw ApiException.badRequest("MISMA_CUENTA", "La cuenta de origen y la de destino son la misma");
         }
-        accountsClient.getAccount(origin);
+        AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
+        if (!originAccount.ownerId().equals(user.id())){
+            throw ApiException.badRequest("CUENTA_NO_PROPIA", "La cuenta de origen no pertenece al usuario");
+        }
 
-        // TODO validar con ms-fraud antes de ejecutar (ver docs/fraude.md)
+        FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
+        if (checkResponse.verdict() != Verdict.APROBADA){
+            throw ApiException.badRequest("TRANSACCION_FRAUDULENTA", checkResponse.reasons().toString());
+        }
 
         Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
         try {
