@@ -95,4 +95,16 @@ class TransferServiceTest {
                 .isInstanceOf(ApiException.class);
         verify(accounts, never()).debit(any(), any(), any(), any());
     }
+
+    @Test
+    void cannotTransferFromAccountOfAnotherUser() {
+        lenient().when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L));
+
+        assertThatThrownBy(() -> service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), null), ANA))
+                .isInstanceOf(ApiException.class);
+        verify(accounts, never()).debit(any(), any(), any(), any());
+        verify(transfers, never()).save(any());
+    }
 }
