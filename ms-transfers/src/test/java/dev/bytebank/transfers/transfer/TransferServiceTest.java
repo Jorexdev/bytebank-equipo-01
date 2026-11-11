@@ -6,6 +6,7 @@ import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
 import dev.bytebank.transfers.client.AccountsClient;
 import dev.bytebank.transfers.client.AccountsClient.AccountInfo;
+import dev.bytebank.transfers.client.FraudClient;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,8 @@ class TransferServiceTest {
     TransferRepository transfers;
     @Mock
     AccountsClient accounts;
+    @Mock
+    FraudClient fraud;
 
     @InjectMocks
     TransferService service;
