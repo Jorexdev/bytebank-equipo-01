@@ -7,6 +7,7 @@ import dev.bytebank.accounts.movement.MovementType;
 import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
+import dev.bytebank.common.security.CurrentUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,8 +44,16 @@ public class AccountService {
 
     @Transactional(readOnly = true)
     public Account get(String iban) {
+        long idOwner = CurrentUser.get().id();
+        return accounts.findByIbanAndOwnerId(Iban.normalize(iban), idOwner).orElseThrow(
+                () -> ApiException.notFound("CUENTA_NO_PROPIA", "La cuenta no existe entre sus cuentas asociadas")
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public Account findByIban(String iban) {
         return accounts.findByIban(Iban.normalize(iban)).orElseThrow(
-                () -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada")
+                () -> ApiException.notFound("CUENTA_NO_EXISTE", "Cuenta no encontrada")
         );
     }
 
