@@ -13,6 +13,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -64,5 +69,47 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
 
         assertThatThrownBy(() -> ledger.credit(new MovementRequest("TRF-4", iban, 10, MovementType.TRANSFERENCIA_RECIBIDA, null)))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void concurrentDebitsNeverLeaveNegativeBalance() throws Exception {
+        int threads = 4;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger insufficient = new AtomicInteger();
+        List<Future<?>> futures = new ArrayList<>();
+
+        for (int i = 0; i < threads; i++) {
+            String ref = "TRF-C" + i;
+            futures.add(pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                try {
+                    ledger.debit(new MovementRequest(ref, iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null));
+                    ok.incrementAndGet();
+                } catch (ApiException e) {
+                    if ("FONDOS_INSUFICIENTES".equals(e.getCode())) {
+                        insufficient.incrementAndGet();
+                    } else {
+                        throw e;
+                    }
+                }
+                return null;
+            }));
+        }
+
+        ready.await();
+        start.countDown();
+        for (Future<?> f : futures) {
+            f.get(10, TimeUnit.SECONDS);
+        }
+        pool.shutdown();
+
+        assertThat(ok.get()).isEqualTo(3);
+        assertThat(insufficient.get()).isEqualTo(1);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(10);
+        assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isEqualTo(3);
     }
 }

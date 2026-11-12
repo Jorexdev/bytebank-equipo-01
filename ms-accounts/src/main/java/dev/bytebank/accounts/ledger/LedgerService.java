@@ -32,7 +32,7 @@ public class LedgerService {
 
     @Transactional
     public LedgerResult debit(MovementRequest request) {
-        Account account = find(request.iban());
+        Account account = findForUpdate(request.iban());
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
@@ -50,7 +50,7 @@ public class LedgerService {
 
     @Transactional
     public LedgerResult credit(MovementRequest request) {
-        Account account = find(request.iban());
+        Account account = findForUpdate(request.iban());
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
@@ -63,8 +63,8 @@ public class LedgerService {
         return new LedgerResult(request.reference(), account.getBalance());
     }
 
-    private Account find(String iban) {
-        return accounts.findByIban(Iban.normalize(iban))
+    private Account findForUpdate(String iban) {
+        return accounts.findByIbanForUpdate(Iban.normalize(iban))
                 .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "No existe la cuenta " + iban));
     }
 
