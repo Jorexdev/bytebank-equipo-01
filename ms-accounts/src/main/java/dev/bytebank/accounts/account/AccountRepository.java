@@ -10,6 +10,8 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
 
     Optional<Account> findByIban(String iban);
 
+    Optional<Account> findByIbanAndOwnerId(String iban, Long ownerId);
+
     List<Account> findByOwnerIdOrderByCreatedAt(Long ownerId);
 
     @Query(value = "select nextval('account_number_seq')", nativeQuery = true)

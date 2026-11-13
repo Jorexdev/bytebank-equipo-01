@@ -45,12 +45,12 @@ public class TransferService {
             throw ApiException.badRequest("MISMA_CUENTA", "La cuenta de origen y la de destino son la misma");
         }
         AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
-        if (!originAccount.ownerId().equals(user.id())){
-            throw ApiException.badRequest("CUENTA_NO_PROPIA", "La cuenta de origen no pertenece al usuario");
+        if (!originAccount.ownerId().equals(user.id())) {
+            throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No se encontró la cuenta de origen");
         }
 
         FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
-        if (checkResponse.verdict() != Verdict.APROBADA){
+        if (checkResponse.verdict() != Verdict.APROBADA) {
             throw ApiException.badRequest("TRANSACCION_FRAUDULENTA", checkResponse.reasons().toString());
         }
 
