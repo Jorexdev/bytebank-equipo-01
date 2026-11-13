@@ -7,7 +7,12 @@ import dev.bytebank.accounts.ledger.LedgerDtos.LedgerResult;
 import dev.bytebank.accounts.ledger.LedgerDtos.MovementRequest;
 import dev.bytebank.accounts.ledger.LedgerService;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Operaciones para otros servicios (requiere la clave interna).
@@ -29,7 +34,7 @@ public class InternalAccountController {
 
     @GetMapping("/{iban}")
     public InternalAccountResponse get(@PathVariable String iban) {
-        Account account = accountService.findByIban(iban);
+        Account account = accountService.getAccountByIban(iban);
         return new InternalAccountResponse(account.getIban(), account.getStatus(), account.getBalance(),
                 account.getOwnerId());
     }

@@ -7,7 +7,6 @@ import dev.bytebank.accounts.movement.MovementType;
 import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
-import dev.bytebank.common.security.CurrentUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,23 +42,25 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
-    public Account get(String iban) {
-        long idOwner = CurrentUser.get().id();
-        return accounts.findByIbanAndOwnerId(Iban.normalize(iban), idOwner).orElseThrow(
-                () -> ApiException.notFound("CUENTA_NO_PROPIA", "La cuenta no existe entre sus cuentas asociadas")
+    public Account get(AuthUser user, String iban) {
+        if (user.isGestor()) {
+            return getAccountByIban(iban);
+        }
+        return accounts.findByIbanAndOwnerId(Iban.normalize(iban), user.id()).orElseThrow(
+                () -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "La cuenta no existe entre sus cuentas asociadas")
         );
     }
 
     @Transactional(readOnly = true)
-    public Account findByIban(String iban) {
+    public Account getAccountByIban(String iban) {
         return accounts.findByIban(Iban.normalize(iban)).orElseThrow(
-                () -> ApiException.notFound("CUENTA_NO_EXISTE", "Cuenta no encontrada")
+                () -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada")
         );
     }
 
     @Transactional
     public Account changeStatus(String iban, AccountStatus status) {
-        Account account = get(iban);
+        Account account = getAccountByIban(iban);
         account.changeStatus(status);
         log.info("Cuenta {} pasa a {}", account.getIban(), status);
         return account;
@@ -67,7 +68,7 @@ public class AccountService {
 
     @Transactional
     public Account deposit(String iban, double amount, String concept) {
-        Account account = get(iban);
+        Account account = getAccountByIban(iban);
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
         }
