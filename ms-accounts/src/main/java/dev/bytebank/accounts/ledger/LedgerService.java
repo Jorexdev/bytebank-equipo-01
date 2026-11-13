@@ -11,6 +11,7 @@ import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.iban.Iban;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,8 +65,13 @@ public class LedgerService {
     }
 
     private Account findForUpdate(String iban) {
-        return accounts.findByIbanForUpdate(Iban.normalize(iban))
-                .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "No existe la cuenta " + iban));
+        try {
+            return accounts.findByIbanForUpdate(Iban.normalize(iban))
+                    .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "No existe la cuenta " + iban));
+        } catch (PessimisticLockingFailureException e) {
+            log.warn("Bloqueo no obtenido para la cuenta {}", iban);
+            throw ApiException.conflict("CUENTA_OCUPADA", "La cuenta está ocupada, inténtalo de nuevo");
+        }
     }
 
     private static String conceptOrDefault(String concept) {

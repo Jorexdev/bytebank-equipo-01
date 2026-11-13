@@ -12,6 +12,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +31,8 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     AccountRepository accounts;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    PlatformTransactionManager txManager;
 
     String iban;
 
@@ -111,5 +115,30 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
         assertThat(insufficient.get()).isEqualTo(1);
         assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(10);
         assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isEqualTo(3);
+    }
+
+
+    @Test
+    void debitFailsWithAccountBusyWhenRowIsLocked() throws Exception {
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            tx.executeWithoutResult(status -> {
+                accounts.findByIbanForUpdate(iban).orElseThrow();
+
+                Future<?> attempt = pool.submit(() ->
+                        ledger.debit(new MovementRequest("TRF-LOCK", iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null)));
+
+                assertThatThrownBy(() -> attempt.get(10, TimeUnit.SECONDS))
+                        .isInstanceOf(ExecutionException.class)
+                        .hasCauseInstanceOf(ApiException.class)
+                        .satisfies(e -> assertThat(((ApiException) e.getCause()).getCode()).isEqualTo("CUENTA_OCUPADA"));
+            });
+        } finally {
+            pool.shutdownNow();
+        }
+        
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+        assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isZero();
     }
 }
