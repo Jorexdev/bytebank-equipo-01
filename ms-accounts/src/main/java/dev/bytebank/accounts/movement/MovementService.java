@@ -29,8 +29,8 @@ public class MovementService {
         Instant end = to == null ? MAX : to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
 
         long total = movements.countInRange(account.getId(), start, end);
-        // OFFSET en PostgreSQL empieza a contar en 1
-        int offset = page * size + 1;
+        // OFFSET en SQL es 0-based: la primera fila de la página es page * size
+        int offset = page * size;
         List<MovementResponse> content = movements.findSlice(account.getId(), start, end, size, offset)
                 .stream().map(MovementResponse::from).toList();
         int totalPages = (int) Math.ceil((double) total / size);
