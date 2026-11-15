@@ -34,7 +34,7 @@ public class MovementService {
         Instant end = to == null ? MAX : to.plusDays(1).atStartOfDay(zone).toInstant();
 
         long total = movements.countInRange(account.getId(), start, end);
-        // OFFSET en SQL empieza en 0: la página 0 es la primera
+        // OFFSET en SQL es 0-based: la primera fila de la página es page * size
         int offset = page * size;
         List<MovementResponse> content = movements.findSlice(account.getId(), start, end, size, offset)
                 .stream().map(m -> MovementResponse.from(m, zone)).toList();
