@@ -50,10 +50,12 @@ public class AccountController {
 
     @GetMapping("/{iban}")
     public AccountResponse get(@PathVariable String iban) {
-        return AccountResponse.from(accountService.get(iban));
+        return AccountResponse.from(accountService.get(CurrentUser.get(), iban));
     }
 
-    /** Extracto paginado, del más reciente al más antiguo. */
+    /**
+     * Extracto paginado, del más reciente al más antiguo.
+     */
     @GetMapping("/{iban}/movements")
     public PageResponse<MovementResponse> movements(
             @PathVariable String iban,
@@ -61,15 +63,18 @@ public class AccountController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return movementService.statement(accountService.get(iban), from, to, page, size);
+        return movementService.statement(accountService.get(CurrentUser.get(), iban), from, to, page, size);
     }
 
     @PatchMapping("/{iban}/status")
+    @PreAuthorize("hasRole('GESTOR')")
     public AccountResponse changeStatus(@PathVariable String iban, @Valid @RequestBody ChangeStatusRequest request) {
         return AccountResponse.from(accountService.changeStatus(iban, request.status()));
     }
 
-    /** Ingreso en ventanilla: solo lo puede hacer un gestor. */
+    /**
+     * Ingreso en ventanilla: solo lo puede hacer un gestor.
+     */
     @PostMapping("/{iban}/deposits")
     @PreAuthorize("hasRole('GESTOR')")
     public AccountResponse deposit(@PathVariable String iban, @Valid @RequestBody DepositRequest request) {
