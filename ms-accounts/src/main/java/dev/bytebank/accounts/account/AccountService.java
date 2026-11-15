@@ -42,7 +42,17 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
-    public Account get(String iban) {
+    public Account get(AuthUser user, String iban) {
+        if (user.isGestor()) {
+            return getAccountByIban(iban);
+        }
+        return accounts.findByIbanAndOwnerId(Iban.normalize(iban), user.id()).orElseThrow(
+                () -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "La cuenta no existe entre sus cuentas asociadas")
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public Account getAccountByIban(String iban) {
         return accounts.findByIban(Iban.normalize(iban)).orElseThrow(
                 () -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada")
         );
@@ -50,7 +60,7 @@ public class AccountService {
 
     @Transactional
     public Account changeStatus(String iban, AccountStatus status) {
-        Account account = get(iban);
+        Account account = getAccountByIban(iban);
         account.changeStatus(status);
         log.info("Cuenta {} pasa a {}", account.getIban(), status);
         return account;
@@ -58,7 +68,7 @@ public class AccountService {
 
     @Transactional
     public Account deposit(String iban, double amount, String concept) {
-        Account account = get(iban);
+        Account account = getAccountByIban(iban);
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
         }
