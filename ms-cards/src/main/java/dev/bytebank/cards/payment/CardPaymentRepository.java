@@ -10,10 +10,11 @@ import java.util.List;
 
 public interface CardPaymentRepository extends JpaRepository<CardPayment, Long> {
 
-    /** Total gastado con la tarjeta desde {@code since}. Sirve para comprobar el límite diario. */
+    /** Total aprobado con la tarjeta desde {@code since}. Sirve para comprobar el límite diario. */
     @Query("""
             select coalesce(sum(p.amount), 0) from CardPayment p
             where p.cardId = :cardId and p.createdAt >= :since
+              and p.status = dev.bytebank.cards.payment.PaymentStatus.APROBADO
             """)
     BigDecimal sumAmountSince(@Param("cardId") Long cardId, @Param("since") Instant since);
 
