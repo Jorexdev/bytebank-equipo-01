@@ -6,6 +6,9 @@ import dev.bytebank.accounts.movement.Movement;
 import dev.bytebank.accounts.movement.MovementRepository;
 import dev.bytebank.accounts.movement.MovementType;
 import dev.bytebank.common.iban.Iban;
+
+import java.math.BigDecimal;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -48,7 +51,7 @@ public class DemoSeeder implements ApplicationRunner {
 
     private void open(long ownerId, double initialBalance) {
         Account account = accounts.save(new Account(Iban.generate(accounts.nextAccountNumber()), ownerId));
-        account.credit(initialBalance);
+        account.credit(new BigDecimal(String.valueOf(initialBalance)));
         movements.save(new Movement(account, MovementType.INGRESO, initialBalance, "Saldo inicial", null));
     }
 }

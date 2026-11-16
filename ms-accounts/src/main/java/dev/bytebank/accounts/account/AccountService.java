@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -62,7 +63,7 @@ public class AccountService {
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
         }
-        account.credit(amount);
+        account.credit(new BigDecimal(String.valueOf(amount)));
         Movement movement = movements.save(new Movement(account, MovementType.INGRESO, amount,
                 concept == null || concept.isBlank() ? "Ingreso" : concept, null));
         publisher.publish(movement, account);

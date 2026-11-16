@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
+
 public final class LedgerDtos {
 
     private LedgerDtos() {
@@ -19,6 +21,6 @@ public final class LedgerDtos {
             @Size(max = 140) String concept) {
     }
 
-    public record LedgerResult(String reference, double balanceAfter) {
+    public record LedgerResult(String reference, BigDecimal balanceAfter) {
     }
 }

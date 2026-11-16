@@ -13,7 +13,7 @@ public record MovementEvent(Long movementId, String iban, Long ownerId, String t
 
     public static MovementEvent of(Movement movement, Account account) {
         return new MovementEvent(movement.getId(), account.getIban(), account.getOwnerId(), movement.getType().name(),
-                movement.getAmount(), movement.getBalanceAfter(), movement.getConcept(), movement.getReference(),
+                movement.getAmount(), movement.getBalanceAfter().doubleValue(), movement.getConcept(), movement.getReference(),
                 movement.getCreatedAt());
     }
 }

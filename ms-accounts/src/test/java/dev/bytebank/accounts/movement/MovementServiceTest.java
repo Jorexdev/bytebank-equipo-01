@@ -7,6 +7,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -32,9 +33,11 @@ class MovementServiceTest {
     void returnsTheRequestedPage() {
         Account account = mock(Account.class);
         when(account.getId()).thenReturn(1L);
+        when(account.getBalance()).thenReturn(new BigDecimal("0.00"));
+        List<Movement> firstPage = List.of(
+                movement(account, "Uno"), movement(account, "Dos"), movement(account, "Tres"));
         when(movements.countInRange(anyLong(), any(), any())).thenReturn(3L);
-        when(movements.findSlice(anyLong(), any(), any(), anyInt(), anyInt())).thenReturn(List.of(
-                mock(Movement.class), mock(Movement.class), mock(Movement.class)));
+        when(movements.findSlice(anyLong(), any(), any(), anyInt(), anyInt())).thenReturn(firstPage);
 
         var page = service.statement(account, null, null, 0, 10);
 
@@ -52,5 +55,9 @@ class MovementServiceTest {
 
         // el límite superior es exclusivo: el 31 entero cabe si acaba al empezar el 1 de junio
         verify(movements).countInRange(1L, Instant.parse("2026-05-01T00:00:00Z"), Instant.parse("2026-06-01T00:00:00Z"));
+    }
+
+    private Movement movement(Account account, String concept) {
+        return new Movement(account, MovementType.INGRESO, 10, concept, null);
     }
 }
