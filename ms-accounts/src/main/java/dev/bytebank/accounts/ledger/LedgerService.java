@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,7 +36,7 @@ public class LedgerService {
 
     @Transactional
     public LedgerResult debit(MovementRequest request) {
-        Account account = find(request.iban());
+        Account account = findForUpdate(request.iban());
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
@@ -53,7 +54,7 @@ public class LedgerService {
 
     @Transactional
     public LedgerResult credit(MovementRequest request) {
-        Account account = find(request.iban());
+        Account account = findForUpdate(request.iban());
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
@@ -66,9 +67,14 @@ public class LedgerService {
         return new LedgerResult(request.reference(), account.getBalance());
     }
 
-    private Account find(String iban) {
-        return accounts.findByIban(Iban.normalize(iban))
-                .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "No existe la cuenta " + iban));
+    private Account findForUpdate(String iban) {
+        try {
+            return accounts.findByIbanForUpdate(Iban.normalize(iban))
+                    .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "No existe la cuenta " + iban));
+        } catch (PessimisticLockingFailureException e) {
+            log.warn("Bloqueo no obtenido para la cuenta {}", iban);
+            throw ApiException.conflict("CUENTA_OCUPADA", "La cuenta está ocupada, inténtalo de nuevo");
+        }
     }
 
     private static String conceptOrDefault(String concept) {

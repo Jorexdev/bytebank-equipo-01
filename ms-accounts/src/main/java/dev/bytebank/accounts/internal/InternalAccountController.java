@@ -16,7 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 
-/** Operaciones para otros servicios (requiere la clave interna). */
+/**
+ * Operaciones para otros servicios (requiere la clave interna).
+ */
 @RestController
 @RequestMapping("/internal/accounts")
 public class InternalAccountController {
@@ -34,7 +36,7 @@ public class InternalAccountController {
 
     @GetMapping("/{iban}")
     public InternalAccountResponse get(@PathVariable String iban) {
-        Account account = accountService.get(iban);
+        Account account = accountService.getAccountByIban(iban);
         return new InternalAccountResponse(account.getIban(), account.getStatus(), account.getBalance(),
                 account.getOwnerId());
     }
