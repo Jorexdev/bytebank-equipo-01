@@ -125,7 +125,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
 
         assertThat(ok.get()).isEqualTo(3);
         assertThat(insufficient.get()).isEqualTo(1);
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(10);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("10");
         assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isEqualTo(3);
     }
 
@@ -150,7 +150,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
             pool.shutdownNow();
         }
         
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100");
         assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isZero();
     }
 }
