@@ -1,0 +1,5 @@
+bytebank:
+  security:
+    jwt:
+      secret: test-jwt-secret-para-pruebas-con-32-bytes-o-mas
+      expiration: 1440

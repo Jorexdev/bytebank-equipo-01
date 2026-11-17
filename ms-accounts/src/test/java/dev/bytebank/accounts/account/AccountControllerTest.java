@@ -3,9 +3,10 @@ package dev.bytebank.accounts.account;
 import dev.bytebank.accounts.movement.MovementService;
 import dev.bytebank.common.CommonAutoConfiguration;
 import dev.bytebank.common.error.ApiException;
-import dev.bytebank.common.security.SecurityConstants;
+import dev.bytebank.common.security.JwtProperties;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,24 +31,30 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(AccountController.class)
 @Import({CommonAutoConfiguration.class, RestClientAutoConfiguration.class})
+@ActiveProfiles("test")
 @TestPropertySource(properties = "bytebank.internal-key=test-internal-key")
 class AccountControllerTest {
 
-    static final String JWT_SECRET = SecurityConstants.JWT_SECRET;
+    @Autowired
+    JwtProperties jwtProperties;
 
-    static final String TOKEN_CLIENTE = "Bearer " + Jwts.builder()
-            .subject("1")
-            .claim("email", "cliente@bytebank.test")
-            .claim("role", "CLIENTE")
-            .signWith(Keys.hmacShaKeyFor(JWT_SECRET.getBytes(StandardCharsets.UTF_8)))
-            .compact();
+    String tokenCliente;
+    String tokenGestor;
 
-    static final String TOKEN_GESTOR = "Bearer " + Jwts.builder()
-            .subject("2")
-            .claim("email", "gestor@bytebank.test")
-            .claim("role", "GESTOR")
-            .signWith(Keys.hmacShaKeyFor(JWT_SECRET.getBytes(StandardCharsets.UTF_8)))
-            .compact();
+    @BeforeEach
+    void firmarTokens() {
+        tokenCliente = token("1", "cliente@bytebank.test", "CLIENTE");
+        tokenGestor = token("2", "gestor@bytebank.test", "GESTOR");
+    }
+
+    private String token(String id, String email, String role) {
+        return "Bearer " + Jwts.builder()
+                .subject(id)
+                .claim("email", email)
+                .claim("role", role)
+                .signWith(Keys.hmacShaKeyFor(jwtProperties.secret().getBytes(StandardCharsets.UTF_8)))
+                .compact();
+    }
 
     @Autowired
     MockMvc mvc;
@@ -64,7 +72,7 @@ class AccountControllerTest {
                 .thenThrow(ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada"));
 
         mvc.perform(get("/api/accounts/ES0000000000000000000000")
-                        .header("Authorization", TOKEN_CLIENTE))
+                        .header("Authorization", tokenCliente))
                 .andExpect(status().isNotFound());
     }
 
@@ -75,7 +83,7 @@ class AccountControllerTest {
                 .thenThrow(ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada"));
 
         mvc.perform(get("/api/accounts/ES0000000000000000000000/movements")
-                        .header("Authorization", TOKEN_CLIENTE))
+                        .header("Authorization", tokenCliente))
                 .andExpect(status().isNotFound());
     }
 
@@ -83,7 +91,7 @@ class AccountControllerTest {
     @Test
     void changeStatusAsClienteReturns403() throws Exception {
         mvc.perform(patch("/api/accounts/ES0000000000000000000000/status")
-                        .header("Authorization", TOKEN_CLIENTE)
+                        .header("Authorization", tokenCliente)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"BLOQUEADA\"}"))
                 .andExpect(status().isForbidden());
@@ -97,7 +105,7 @@ class AccountControllerTest {
                 .thenReturn(new Account(iban, 1L));
 
         mvc.perform(patch("/api/accounts/{iban}/status", iban)
-                        .header("Authorization", TOKEN_GESTOR)
+                        .header("Authorization", tokenGestor)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"BLOQUEADA\"}"))
                 .andExpect(status().isOk());
@@ -107,7 +115,7 @@ class AccountControllerTest {
     @Test
     void depositAsClienteReturns403() throws Exception {
         mvc.perform(post("/api/accounts/ES0000000000000000000000/deposits")
-                        .header("Authorization", TOKEN_CLIENTE)
+                        .header("Authorization", tokenCliente)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":100.0,\"concept\":\"Ingreso ventanilla\"}"))
                 .andExpect(status().isForbidden());
@@ -121,7 +129,7 @@ class AccountControllerTest {
                 .thenReturn(new Account(iban, 1L));
 
         mvc.perform(post("/api/accounts/{iban}/deposits", iban)
-                        .header("Authorization", TOKEN_GESTOR)
+                        .header("Authorization", tokenGestor)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":100.0,\"concept\":\"Ingreso ventanilla\"}"))
                 .andExpect(status().isOk());
