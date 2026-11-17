@@ -10,8 +10,6 @@ import dev.bytebank.accounts.movement.MovementRepository;
 import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.iban.Iban;
 
-import java.math.BigDecimal;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -40,12 +38,12 @@ public class LedgerService {
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
-        if (account.getBalance().compareTo(BigDecimal.valueOf(request.amount())) < 0) {
+        if (account.getBalance().compareTo(request.amount()) < 0) {
             throw ApiException.conflict("FONDOS_INSUFICIENTES", "Saldo insuficiente");
         }
-        account.debit(new BigDecimal(String.valueOf(request.amount())));
+        account.debit(request.amount());
         accounts.save(account);
-        Movement movement = movements.save(new Movement(account, request.type(), -request.amount(),
+        Movement movement = movements.save(new Movement(account, request.type(), request.amount().negate(),
                 conceptOrDefault(request.concept()), request.reference()));
         publisher.publish(movement, account);
         log.info("Cargo {} de {} en {}", request.reference(), request.amount(), account.getIban());
@@ -58,7 +56,7 @@ public class LedgerService {
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
-        account.credit(new BigDecimal(String.valueOf(request.amount())));
+        account.credit(request.amount());
         accounts.save(account);
         Movement movement = movements.save(new Movement(account, request.type(), request.amount(),
                 conceptOrDefault(request.concept()), request.reference()));

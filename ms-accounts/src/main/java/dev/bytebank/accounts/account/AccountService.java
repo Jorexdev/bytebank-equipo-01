@@ -68,15 +68,29 @@ public class AccountService {
     }
 
     @Transactional
-    public Account deposit(String iban, double amount, String concept) {
+    public Account deposit(String iban, BigDecimal amount, String concept) {
+    	validateAmount(amount);
         Account account = getAccountByIban(iban);
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
         }
-        account.credit(new BigDecimal(String.valueOf(amount)));
+        account.credit(amount);
         Movement movement = movements.save(new Movement(account, MovementType.INGRESO, amount,
                 concept == null || concept.isBlank() ? "Ingreso" : concept, null));
         publisher.publish(movement, account);
         return account;
     }
+    
+    private static void validateAmount(BigDecimal amount) {
+        if (amount == null) {
+            throw ApiException.badRequest("IMPORTE_NO_VALIDO", "El importe es obligatorio");
+        }
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("IMPORTE_NO_VALIDO", "El importe debe ser mayor que cero");
+        }
+        if (amount.stripTrailingZeros().scale() > 2) {
+            throw ApiException.badRequest("IMPORTE_NO_VALIDO", "El importe admite como máximo 2 decimales");
+        }
+    }
+    
 }

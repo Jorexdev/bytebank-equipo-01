@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 /** Apunte del extracto. El importe lleva signo: positivo si entra dinero, negativo si sale. */
@@ -32,9 +33,9 @@ public class Movement {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private MovementType type;
-
-    @Column(nullable = false)
-    private double amount;
+    
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal amount;
 
     @Column(name = "balance_after", nullable = false, precision = 19, scale = 2)
     private BigDecimal balanceAfter;
@@ -51,10 +52,10 @@ public class Movement {
     protected Movement() {
     }
 
-    public Movement(Account account, MovementType type, double amount, String concept, String reference) {
+    public Movement(Account account, MovementType type, BigDecimal amount, String concept, String reference) {
         this.account = account;
         this.type = type;
-        this.amount = amount;
+        this.amount = amount.setScale(2, RoundingMode.UNNECESSARY);;
         this.balanceAfter = account.getBalance();
         this.concept = concept;
         this.reference = reference;
@@ -69,7 +70,7 @@ public class Movement {
         return type;
     }
 
-    public double getAmount() {
+    public BigDecimal getAmount() {
         return amount;
     }
 

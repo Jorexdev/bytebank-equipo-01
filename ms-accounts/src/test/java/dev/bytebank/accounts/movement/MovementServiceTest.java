@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -86,6 +87,6 @@ class MovementServiceTest {
     }
 
     private Movement movement(String concept) {
-        return new Movement(account, MovementType.INGRESO, 10, concept, null);
+        return new Movement(account, MovementType.INGRESO, new BigDecimal("10.0"), concept, null);
     }
 }

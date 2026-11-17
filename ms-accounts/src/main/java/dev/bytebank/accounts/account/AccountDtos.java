@@ -1,5 +1,6 @@
 package dev.bytebank.accounts.account;
 
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -23,6 +24,6 @@ public final class AccountDtos {
     public record ChangeStatusRequest(@NotNull AccountStatus status) {
     }
 
-    public record DepositRequest(@Positive double amount, @Size(max = 140) String concept) {
+    public record DepositRequest(@Positive @Digits(integer = 17, fraction = 2) BigDecimal amount, @Size(max = 140) String concept) {
     }
 }

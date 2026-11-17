@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 @Entity
@@ -43,7 +44,7 @@ public class Account {
         this.iban = iban;
         this.ownerId = ownerId;
         this.status = AccountStatus.ACTIVA;
-        this.balance = new BigDecimal("0.00");
+        this.balance = BigDecimal.ZERO.setScale(2);
         this.createdAt = Instant.now();
     }
 
@@ -52,11 +53,16 @@ public class Account {
     }
 
     public void credit(BigDecimal amount) {
-        balance = balance.add(amount);
+    	BigDecimal normalized = normalize(amount);
+        balance = balance.add(normalized);
     }
 
     public void debit(BigDecimal amount) {
-        balance = balance.subtract(amount);
+    	BigDecimal normalized = normalize(amount);
+    	if (balance.compareTo(normalized) < 0) {
+            throw new IllegalStateException("Fondos insuficientes");
+        }
+        balance = balance.subtract(normalized);
     }
 
     public void changeStatus(AccountStatus status) {
@@ -86,4 +92,16 @@ public class Account {
     public Instant getCreatedAt() {
         return createdAt;
     }
+    
+    private BigDecimal normalize(BigDecimal amount) {
+        if (amount == null) {
+            throw new IllegalArgumentException("El monto no puede ser null");
+        }
+        BigDecimal scaled = amount.setScale(2, RoundingMode.UNNECESSARY);
+        if (scaled.signum() <= 0) {
+            throw new IllegalArgumentException("El monto debe ser mayor que cero");
+        }
+        return scaled;
+    }
+    
 }

@@ -49,14 +49,14 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
 
     @Test
     void debitReducesBalance() {
-        ledger.debit(new MovementRequest("TRF-1", iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null));
+        ledger.debit(new MovementRequest("TRF-1", iban, new BigDecimal("30.0"), MovementType.TRANSFERENCIA_EMITIDA, null));
 
         assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("70");
     }
 
     @Test
     void creditIncreasesBalance() {
-        ledger.credit(new MovementRequest("TRF-2", iban, 50, MovementType.TRANSFERENCIA_RECIBIDA, null));
+        ledger.credit(new MovementRequest("TRF-2", iban, new BigDecimal("50.0"), MovementType.TRANSFERENCIA_RECIBIDA, null));
 
         assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("150");
     }
@@ -64,8 +64,8 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     @Test
     void balanceIsExactWithFractionalCredits() {
         // Regresión del bug: 0,10 + 0,20 en coma flotante daba 0,30000000000000004
-        ledger.credit(new MovementRequest("R-1", iban, 0.10, MovementType.INGRESO, null));
-        ledger.credit(new MovementRequest("R-2", iban, 0.20, MovementType.INGRESO, null));
+        ledger.credit(new MovementRequest("R-1", iban, new BigDecimal("0.10"), MovementType.INGRESO, null));
+        ledger.credit(new MovementRequest("R-2", iban, new BigDecimal("0.20"), MovementType.INGRESO, null));
 
         // el setUp ya abona 100.00: 100.00 + 0.10 + 0.20
         assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100.30");
@@ -73,7 +73,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
 
     @Test
     void cannotDebitMoreThanBalance() {
-        assertThatThrownBy(() -> ledger.debit(new MovementRequest("TRF-3", iban, 101, MovementType.TRANSFERENCIA_EMITIDA, null)))
+        assertThatThrownBy(() -> ledger.debit(new MovementRequest("TRF-3", iban, new BigDecimal("101.0"), MovementType.TRANSFERENCIA_EMITIDA, null)))
                 .isInstanceOf(ApiException.class);
     }
 
@@ -83,7 +83,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
         account.changeStatus(AccountStatus.BLOQUEADA);
         accounts.save(account);
 
-        assertThatThrownBy(() -> ledger.credit(new MovementRequest("TRF-4", iban, 10, MovementType.TRANSFERENCIA_RECIBIDA, null)))
+        assertThatThrownBy(() -> ledger.credit(new MovementRequest("TRF-4", iban, new BigDecimal("10.0"), MovementType.TRANSFERENCIA_RECIBIDA, null)))
                 .isInstanceOf(ApiException.class);
     }
 
@@ -103,7 +103,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
                 ready.countDown();
                 start.await();
                 try {
-                    ledger.debit(new MovementRequest(ref, iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null));
+                    ledger.debit(new MovementRequest(ref, iban, new BigDecimal("30.0"), MovementType.TRANSFERENCIA_EMITIDA, null));
                     ok.incrementAndGet();
                 } catch (ApiException e) {
                     if ("FONDOS_INSUFICIENTES".equals(e.getCode())) {
@@ -139,7 +139,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
                 accounts.findByIbanForUpdate(iban).orElseThrow();
 
                 Future<?> attempt = pool.submit(() ->
-                        ledger.debit(new MovementRequest("TRF-LOCK", iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null)));
+                        ledger.debit(new MovementRequest("TRF-LOCK", iban, new BigDecimal("30.0"), MovementType.TRANSFERENCIA_EMITIDA, null)));
 
                 assertThatThrownBy(() -> attempt.get(10, TimeUnit.SECONDS))
                         .isInstanceOf(ExecutionException.class)
