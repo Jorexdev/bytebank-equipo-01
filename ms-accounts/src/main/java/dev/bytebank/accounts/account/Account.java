@@ -53,13 +53,13 @@ public class Account {
     }
 
     public void credit(BigDecimal amount) {
-    	BigDecimal normalized = normalize(amount);
+        BigDecimal normalized = normalize(amount);
         balance = balance.add(normalized);
     }
 
     public void debit(BigDecimal amount) {
-    	BigDecimal normalized = normalize(amount);
-    	if (balance.compareTo(normalized) < 0) {
+        BigDecimal normalized = normalize(amount);
+        if (balance.compareTo(normalized) < 0) {
             throw new IllegalStateException("Fondos insuficientes");
         }
         balance = balance.subtract(normalized);

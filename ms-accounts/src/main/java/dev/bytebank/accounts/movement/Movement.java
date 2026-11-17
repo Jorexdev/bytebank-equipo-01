@@ -55,7 +55,7 @@ public class Movement {
     public Movement(Account account, MovementType type, BigDecimal amount, String concept, String reference) {
         this.account = account;
         this.type = type;
-        this.amount = amount.setScale(2, RoundingMode.UNNECESSARY);;
+        this.amount = amount.setScale(2, RoundingMode.UNNECESSARY);
         this.balanceAfter = account.getBalance();
         this.concept = concept;
         this.reference = reference;

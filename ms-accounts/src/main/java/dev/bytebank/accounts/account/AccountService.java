@@ -69,7 +69,7 @@ public class AccountService {
 
     @Transactional
     public Account deposit(String iban, BigDecimal amount, String concept) {
-    	validateAmount(amount);
+        validateAmount(amount);
         Account account = getAccountByIban(iban);
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
