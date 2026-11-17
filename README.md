@@ -30,6 +30,7 @@ cp .env.example .env      # y cambia las claves
 docker compose up --build
 ```
 
+`JWT_SECRET` es obligatorio: mínimo 32 bytes (256 bits). Puedes generarlo con `openssl rand -base64 48`.
 La API queda en `http://localhost:8080`. Cada servicio publica su Swagger en
 `http://localhost:<puerto>/swagger-ui.html` (por ejemplo, `http://localhost:8082/swagger-ui.html` para ms-accounts).
 
