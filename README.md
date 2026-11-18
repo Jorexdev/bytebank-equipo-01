@@ -30,6 +30,17 @@ cp .env.example .env      # y cambia las claves
 docker compose up --build
 ```
 
+| Variable de entorno | Contenido | Notas |
+|---|---|---|
+| `POSTGRES_PASSWORD` | Contraseña de PostgreSQL| Obligatoria: Compose no arranca si falta o está vacía. |
+| `INTERNAL_KEY` | Clave de las llamadas internas (cabecera `X-Internal-Key` en `/internal/**`). | Obligatoria: Compose no arranca si falta o está vacía. |
+| `JWT_SECRET` | Clave de firma HS256 de los tokens. | Obligatoria y de al menos 32 bytes (256 bits); Compose no arranca si falta o está vacía. Genera uno con `openssl rand -base64 48`.|
+
+### Tiempo de expiración (definido en docker-compose)
+- `JWT_EXPIRATION_MINUTES`
+- Contenido: Duración del token en minutos (1440 = 24 h por defecto). 
+- Detalles: No es secreto, se ajusta directamente en `docker-compose.yml`. Para un banco se recomienda reducirlo (p. ej. 15–60 min). |
+
 La API queda en `http://localhost:8080`. Cada servicio publica su Swagger en
 `http://localhost:<puerto>/swagger-ui.html` (por ejemplo, `http://localhost:8082/swagger-ui.html` para ms-accounts).
 

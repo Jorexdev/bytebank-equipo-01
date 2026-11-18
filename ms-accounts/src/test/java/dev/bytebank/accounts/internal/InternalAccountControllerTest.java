@@ -8,8 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,23 +28,31 @@ import dev.bytebank.accounts.ledger.LedgerDtos.LedgerResult;
 import dev.bytebank.accounts.ledger.LedgerService;
 import dev.bytebank.common.CommonAutoConfiguration;
 import dev.bytebank.common.security.InternalKeyFilter;
-import dev.bytebank.common.security.SecurityConstants;
+import dev.bytebank.common.security.JwtProperties;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 
 @WebMvcTest(InternalAccountController.class)
 @Import({CommonAutoConfiguration.class, RestClientAutoConfiguration.class})
+@ActiveProfiles("test")
 @TestPropertySource(properties = "bytebank.internal-key=test-internal-key")
 class InternalAccountControllerTest {
 
     static final String INTERNAL_KEY = "test-internal-key";
 
-    static final String TOKEN_CLIENTE = "Bearer " + Jwts.builder()
-            .subject("1")
-            .claim("email", "cliente@bytebank.test")
-            .claim("role", "CLIENTE")
-            .signWith(Keys.hmacShaKeyFor(SecurityConstants.JWT_SECRET.getBytes(StandardCharsets.UTF_8)))
-            .compact();
+    @Autowired
+    JwtProperties jwtProperties;
+
+    String tokenCliente;
+
+    @BeforeEach
+    void firmarToken() {
+        tokenCliente = "Bearer " + Jwts.builder()
+                .subject("1")
+                .claim("email", "cliente@bytebank.test")
+                .claim("role", "CLIENTE")
+                .signWith(jwtProperties.secretKey())
+                .compact();
+    }
 
     @Autowired
     MockMvc mvc;
@@ -178,7 +187,7 @@ class InternalAccountControllerTest {
     @Test
     void debitWithClienteTokenReturns403() throws Exception {
         mvc.perform(post("/internal/accounts/debit")
-                        .header("Authorization", TOKEN_CLIENTE)
+                        .header("Authorization", tokenCliente)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(debitBody("10.00")))
                 .andExpect(status().isForbidden());

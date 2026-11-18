@@ -17,10 +17,16 @@ spring:
 
 bytebank:
   internal-key: ${INTERNAL_KEY}
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiration: ${JWT_EXPIRATION_MINUTES:1440}
   fraud:
     block-threshold: 20000.00
     external-review-threshold: 1000.00
     review-threshold: 5000.00
+    max-transfers: 5
+    frequency-window: 10m
 
 management:
   endpoints:

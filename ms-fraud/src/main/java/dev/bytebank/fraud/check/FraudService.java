@@ -37,6 +37,7 @@ public class FraudService {
     public CheckResponse check(CheckRequest request) {
         Instant now = clock.instant();
         String iban = Iban.normalize(request.originIban());
+        checks.lockByIban(iban);
         var context = new FraudRule.Context(iban, Iban.normalize(request.destinationIban()), request.userId(),
                 request.amount(), now);
 

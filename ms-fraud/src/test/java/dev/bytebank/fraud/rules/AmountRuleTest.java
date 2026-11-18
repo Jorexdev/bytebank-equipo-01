@@ -4,6 +4,7 @@ import dev.bytebank.fraud.FraudProperties;
 import dev.bytebank.fraud.check.Verdict;
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,7 +13,9 @@ class AmountRuleTest {
     private final AmountRule rule = new AmountRule(new FraudProperties(
             new BigDecimal("20000"),
             new BigDecimal("1000"),
-            new BigDecimal("5000")
+            new BigDecimal("5000"),
+            5,
+            Duration.ofMinutes(10)
     ));
 
     @Test
