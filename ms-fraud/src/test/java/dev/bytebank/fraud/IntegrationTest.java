@@ -5,7 +5,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-@SpringBootTest(properties = "bytebank.internal-key=clave-interna-de-test")
+@SpringBootTest(properties = {
+        "bytebank.internal-key=clave-interna-de-test",
+        "bytebank.security.jwt.secret=secreto-de-test-de-al-menos-32-bytes-de-longitud"
+})
 public abstract class IntegrationTest {
 
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:15");
