@@ -3,24 +3,35 @@ package dev.bytebank.accounts.ledger;
 import dev.bytebank.accounts.IntegrationTest;
 import dev.bytebank.accounts.account.Account;
 import dev.bytebank.accounts.account.AccountRepository;
+import dev.bytebank.accounts.account.AccountService;
 import dev.bytebank.accounts.account.AccountStatus;
 import dev.bytebank.accounts.ledger.LedgerDtos.MovementRequest;
 import dev.bytebank.accounts.movement.MovementType;
 import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.iban.Iban;
+import dev.bytebank.accounts.event.MovementEvent;
+import dev.bytebank.accounts.event.OutboxRelay;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
@@ -32,14 +43,21 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     @Autowired
     AccountRepository accounts;
     @Autowired
+    AccountService accountService;
+    @Autowired
+    OutboxRelay relay;
+    @Autowired
     JdbcTemplate jdbc;
     @Autowired
     PlatformTransactionManager txManager;
+    @Value("${spring.kafka.bootstrap-servers}")
+    String bootstrapServers;
 
     String iban;
 
     @BeforeEach
     void setUp() {
+        jdbc.update("delete from outbox");
         jdbc.update("delete from movements");
         jdbc.update("delete from accounts");
         Account account = new Account(Iban.generate(accounts.nextAccountNumber()), 1L);
@@ -129,6 +147,98 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isEqualTo(3);
     }
 
+
+    @Test
+    void rolledBackMovementIsNeverPublished() {
+        assertThatThrownBy(() -> new TransactionTemplate(txManager).executeWithoutResult(status -> {
+            ledger.credit(new MovementRequest("TRF-RB", iban, 50, MovementType.TRANSFERENCIA_RECIBIDA, null));
+            throw new IllegalStateException("fallo tras guardar el movimiento");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+        assertThat(jdbc.queryForObject("select count(*) from outbox", Integer.class)).isZero();
+        // Sin espera fija: un movimiento confirmado después llega seguro, y Kafka conserva el orden por IBAN,
+        // así que si el revertido hubiera salido habría llegado antes y aparecería aquí.
+        ledger.credit(new MovementRequest("TRF-AFTER-RB", iban, 1, MovementType.TRANSFERENCIA_RECIBIDA, null));
+        assertThat(eventsFor(iban, Duration.ofSeconds(10))).singleElement()
+                .satisfies(e -> assertThat(e.value()).contains("TRF-AFTER-RB"));
+    }
+
+    @Test
+    void committedMovementIsPublishedAndOutboxIsDrained() {
+        ledger.credit(new MovementRequest("TRF-OK", iban, 50, MovementType.TRANSFERENCIA_RECIBIDA, null));
+
+        assertThat(eventsFor(iban, Duration.ofSeconds(10))).hasSize(1);
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(jdbc.queryForObject("select count(*) from outbox", Integer.class)).isZero());
+    }
+
+    @Test
+    void committedDepositIsPublished() {
+        accountService.deposit(iban, 25, "Ingreso de ventanilla");
+
+        assertThat(eventsFor(iban, Duration.ofSeconds(10))).singleElement()
+                .satisfies(e -> assertThat(e.value()).contains("INGRESO").contains("Ingreso de ventanilla"));
+    }
+
+    @Test
+    void rolledBackDepositIsNeverPublished() {
+        assertThatThrownBy(() -> new TransactionTemplate(txManager).executeWithoutResult(status -> {
+            accountService.deposit(iban, 25, "Ingreso revertido");
+            throw new IllegalStateException("fallo tras guardar el movimiento");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+
+        accountService.deposit(iban, 1, "Ingreso confirmado"); // mismo truco que en rolledBackMovementIsNeverPublished
+        assertThat(eventsFor(iban, Duration.ofSeconds(10))).singleElement()
+                .satisfies(e -> assertThat(e.value()).contains("Ingreso confirmado"));
+    }
+
+    @Test
+    void concurrentRelaysKeepOrderPerIban() throws Exception {
+        for (int i = 0; i < 150; i++) { // más de un lote, para que haya dos vaciados seguidos
+            ledger.credit(new MovementRequest("TRF-O" + i, iban, 1, MovementType.TRANSFERENCIA_RECIBIDA, null));
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        List<Future<?>> drains = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            drains.add(pool.submit(relay::drain));
+        }
+        for (Future<?> f : drains) {
+            f.get(30, TimeUnit.SECONDS);
+        }
+        pool.shutdown();
+
+        List<String> references = eventsFor(iban, Duration.ofSeconds(15), 150).stream()
+                .map(r -> r.value().replaceAll(".*\"reference\":\"(TRF-O\\d+)\".*", "$1")).distinct().toList();
+        assertThat(references).hasSize(150)
+                .isSortedAccordingTo(java.util.Comparator.comparingInt(r -> Integer.parseInt(r.substring(5))));
+    }
+
+    /** Eventos del topic para ese IBAN; espera hasta {@code wait} (o hasta ver {@code expected}). */
+    private List<ConsumerRecord<String, String>> eventsFor(String key, Duration wait) {
+        return eventsFor(key, wait, 1);
+    }
+
+    private List<ConsumerRecord<String, String>> eventsFor(String key, Duration wait, int expected) {
+        var props = Map.<String, Object>of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
+                ConsumerConfig.GROUP_ID_CONFIG, "test-" + System.nanoTime(),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest",
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        List<ConsumerRecord<String, String>> found = new ArrayList<>();
+        try (var consumer = new KafkaConsumer<String, String>(props)) {
+            consumer.subscribe(List.of(MovementEvent.TOPIC));
+            long end = System.nanoTime() + wait.toNanos();
+            while (System.nanoTime() < end && found.size() < expected) {
+                consumer.poll(Duration.ofMillis(300)).forEach(r -> {
+                    if (key.equals(r.key())) found.add(r);
+                });
+            }
+        }
+        return found;
+    }
 
     @Test
     void debitFailsWithAccountBusyWhenRowIsLocked() throws Exception {
