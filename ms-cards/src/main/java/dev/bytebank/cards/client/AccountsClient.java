@@ -23,6 +23,17 @@ public class AccountsClient {
         }
     }
 
+    private record MovementRequest(String reference, String iban, BigDecimal amount, String type, String concept) {
+    }
+
+    public void debit(String reference, String iban, BigDecimal amount, String concept) {
+        InternalClients.call(() -> client.post()
+                .uri("/internal/accounts/debit")
+                .body(new MovementRequest(reference, iban, amount, "PAGO_TARJETA", concept))
+                .retrieve()
+                .toBodilessEntity());
+    }
+
     public AccountInfo getAccount(String iban) {
         return InternalClients.call(() -> client.get()
                 .uri("/internal/accounts/{iban}", iban)

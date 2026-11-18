@@ -1,6 +1,7 @@
 package dev.bytebank.accounts;
 
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.KafkaContainer;
@@ -15,6 +16,7 @@ import org.testcontainers.utility.DockerImageName;
  * entre clases el contexto cacheado seguiría apuntando al puerto anterior.
  */
 @SpringBootTest(properties = "bytebank.internal-key=clave-interna-de-test")
+@ActiveProfiles("test")
 public abstract class IntegrationTest {
 
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:15");

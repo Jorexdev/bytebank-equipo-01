@@ -9,6 +9,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 @Entity
@@ -29,8 +31,8 @@ public class Account {
     @Column(name = "owner_id", nullable = false)
     private Long ownerId;
 
-    @Column(nullable = false)
-    private double balance;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal balance;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -42,7 +44,7 @@ public class Account {
         this.iban = iban;
         this.ownerId = ownerId;
         this.status = AccountStatus.ACTIVA;
-        this.balance = 0;
+        this.balance = BigDecimal.ZERO.setScale(2);
         this.createdAt = Instant.now();
     }
 
@@ -50,12 +52,17 @@ public class Account {
         return status == AccountStatus.ACTIVA;
     }
 
-    public void credit(double amount) {
-        balance += amount;
+    public void credit(BigDecimal amount) {
+        BigDecimal normalized = normalize(amount);
+        balance = balance.add(normalized);
     }
 
-    public void debit(double amount) {
-        balance -= amount;
+    public void debit(BigDecimal amount) {
+        BigDecimal normalized = normalize(amount);
+        if (balance.compareTo(normalized) < 0) {
+            throw new IllegalStateException("Fondos insuficientes");
+        }
+        balance = balance.subtract(normalized);
     }
 
     public void changeStatus(AccountStatus status) {
@@ -78,11 +85,23 @@ public class Account {
         return ownerId;
     }
 
-    public double getBalance() {
+    public BigDecimal getBalance() {
         return balance;
     }
 
     public Instant getCreatedAt() {
         return createdAt;
     }
+    
+    private BigDecimal normalize(BigDecimal amount) {
+        if (amount == null) {
+            throw new IllegalArgumentException("El monto no puede ser null");
+        }
+        BigDecimal scaled = amount.setScale(2, RoundingMode.UNNECESSARY);
+        if (scaled.signum() <= 0) {
+            throw new IllegalArgumentException("El monto debe ser mayor que cero");
+        }
+        return scaled;
+    }
+    
 }

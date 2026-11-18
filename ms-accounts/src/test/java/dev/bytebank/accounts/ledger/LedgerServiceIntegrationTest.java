@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
+
 class LedgerServiceIntegrationTest extends IntegrationTest {
 
     @Autowired
@@ -41,27 +43,37 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
         jdbc.update("delete from movements");
         jdbc.update("delete from accounts");
         Account account = new Account(Iban.generate(accounts.nextAccountNumber()), 1L);
-        account.credit(100);
+        account.credit(new BigDecimal("100.00"));
         iban = accounts.save(account).getIban();
     }
 
     @Test
     void debitReducesBalance() {
-        ledger.debit(new MovementRequest("TRF-1", iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null));
+        ledger.debit(new MovementRequest("TRF-1", iban, new BigDecimal("30.0"), MovementType.TRANSFERENCIA_EMITIDA, null));
 
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(70);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("70");
     }
 
     @Test
     void creditIncreasesBalance() {
-        ledger.credit(new MovementRequest("TRF-2", iban, 50, MovementType.TRANSFERENCIA_RECIBIDA, null));
+        ledger.credit(new MovementRequest("TRF-2", iban, new BigDecimal("50.0"), MovementType.TRANSFERENCIA_RECIBIDA, null));
 
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(150);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("150");
+    }
+
+    @Test
+    void balanceIsExactWithFractionalCredits() {
+        // Regresión del bug: 0,10 + 0,20 en coma flotante daba 0,30000000000000004
+        ledger.credit(new MovementRequest("R-1", iban, new BigDecimal("0.10"), MovementType.INGRESO, null));
+        ledger.credit(new MovementRequest("R-2", iban, new BigDecimal("0.20"), MovementType.INGRESO, null));
+
+        // el setUp ya abona 100.00: 100.00 + 0.10 + 0.20
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100.30");
     }
 
     @Test
     void cannotDebitMoreThanBalance() {
-        assertThatThrownBy(() -> ledger.debit(new MovementRequest("TRF-3", iban, 101, MovementType.TRANSFERENCIA_EMITIDA, null)))
+        assertThatThrownBy(() -> ledger.debit(new MovementRequest("TRF-3", iban, new BigDecimal("101.0"), MovementType.TRANSFERENCIA_EMITIDA, null)))
                 .isInstanceOf(ApiException.class);
     }
 
@@ -71,7 +83,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
         account.changeStatus(AccountStatus.BLOQUEADA);
         accounts.save(account);
 
-        assertThatThrownBy(() -> ledger.credit(new MovementRequest("TRF-4", iban, 10, MovementType.TRANSFERENCIA_RECIBIDA, null)))
+        assertThatThrownBy(() -> ledger.credit(new MovementRequest("TRF-4", iban, new BigDecimal("10.0"), MovementType.TRANSFERENCIA_RECIBIDA, null)))
                 .isInstanceOf(ApiException.class);
     }
 
@@ -91,7 +103,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
                 ready.countDown();
                 start.await();
                 try {
-                    ledger.debit(new MovementRequest(ref, iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null));
+                    ledger.debit(new MovementRequest(ref, iban, new BigDecimal("30.0"), MovementType.TRANSFERENCIA_EMITIDA, null));
                     ok.incrementAndGet();
                 } catch (ApiException e) {
                     if ("FONDOS_INSUFICIENTES".equals(e.getCode())) {
@@ -113,7 +125,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
 
         assertThat(ok.get()).isEqualTo(3);
         assertThat(insufficient.get()).isEqualTo(1);
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(10);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("10");
         assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isEqualTo(3);
     }
 
@@ -127,7 +139,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
                 accounts.findByIbanForUpdate(iban).orElseThrow();
 
                 Future<?> attempt = pool.submit(() ->
-                        ledger.debit(new MovementRequest("TRF-LOCK", iban, 30, MovementType.TRANSFERENCIA_EMITIDA, null)));
+                        ledger.debit(new MovementRequest("TRF-LOCK", iban, new BigDecimal("30.0"), MovementType.TRANSFERENCIA_EMITIDA, null)));
 
                 assertThatThrownBy(() -> attempt.get(10, TimeUnit.SECONDS))
                         .isInstanceOf(ExecutionException.class)
@@ -138,7 +150,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
             pool.shutdownNow();
         }
         
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100");
         assertThat(jdbc.queryForObject("select count(*) from movements", Integer.class)).isZero();
     }
 }

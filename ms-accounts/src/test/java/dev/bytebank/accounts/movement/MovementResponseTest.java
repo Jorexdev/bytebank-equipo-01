@@ -4,6 +4,7 @@ import dev.bytebank.accounts.account.Account;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -17,7 +18,7 @@ class MovementResponseTest {
     @Test
     void paymentAtHalfPastMidnightIsShownOnTheDayItWasMade() throws Exception {
         Movement movement = new Movement(new Account("ES9121000418450200051332", 2L),
-                MovementType.PAGO_TARJETA, -12.34, "Compra", "REF-1");
+                MovementType.PAGO_TARJETA, new BigDecimal("-12.34"), "Compra", "REF-1");
         // El cliente pagó a las 00:30 del 15 de noviembre en Madrid (23:30Z del 14)
         Instant pago = LocalDateTime.of(2026, 11, 15, 0, 30).atZone(MADRID).toInstant();
         setCreatedAt(movement, pago);
