@@ -1,7 +1,6 @@
 package dev.bytebank.fraud.rules;
 
 import dev.bytebank.fraud.check.Verdict;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
