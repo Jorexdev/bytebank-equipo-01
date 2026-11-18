@@ -4,29 +4,32 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.bytebank.accounts.account.Account;
 import dev.bytebank.accounts.movement.Movement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
-/** Guarda cada movimiento en la outbox para que OutboxRelay lo publique en Kafka y ms-notifications avise al cliente. */
+/** Publica cada movimiento en Kafka para que ms-notifications avise al cliente. */
 @Component
 public class MovementPublisher {
 
-    private final OutboxRepository outbox;
+    private static final Logger log = LoggerFactory.getLogger(MovementPublisher.class);
+
+    private final KafkaTemplate<String, String> kafka;
     private final ObjectMapper objectMapper;
 
-    public MovementPublisher(OutboxRepository outbox, ObjectMapper objectMapper) {
-        this.outbox = outbox;
+    public MovementPublisher(KafkaTemplate<String, String> kafka, ObjectMapper objectMapper) {
+        this.kafka = kafka;
         this.objectMapper = objectMapper;
     }
 
-    /** Va en la misma transacción que el movimiento: si hay rollback, no queda aviso. */
-    @Transactional(propagation = Propagation.MANDATORY)
     public void publish(Movement movement, Account account) {
         try {
-            outbox.save(new OutboxEvent(account.getIban(), objectMapper.writeValueAsString(MovementEvent.of(movement, account))));
+            String payload = objectMapper.writeValueAsString(MovementEvent.of(movement, account));
+            kafka.send(MovementEvent.TOPIC, account.getIban(), payload);
+            log.debug("Movimiento {} publicado", movement.getId());
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("No se pudo serializar el movimiento " + movement.getId(), e);
+            log.error("No se ha podido publicar el movimiento {}", movement.getId(), e);
         }
     }
 }

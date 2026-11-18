@@ -54,8 +54,6 @@ public class TransferService {
             throw ApiException.badRequest("TRANSACCION_FRAUDULENTA", checkResponse.reasons().toString());
         }
 
-        // TODO(KAF-02/BUG-06): cuando la transferencia sea atómica (cargo y abono en una sola transacción de ms-accounts),
-        //  comprobar que si el abono falla se revierte el cargo y no queda aviso (outbox) de un movimiento que no existe.
         Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
         try {
             accountsClient.debit(transfer.ledgerReference(), origin, amount, request.concept());
