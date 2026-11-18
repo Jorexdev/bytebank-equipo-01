@@ -18,6 +18,10 @@ spring:
 bytebank:
   zone: Europe/Madrid
   internal-key: ${INTERNAL_KEY}
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiration: ${JWT_EXPIRATION_MINUTES:1440}
   services:
     accounts-url: ${ACCOUNTS_URL:http://localhost:8082}
   cards:

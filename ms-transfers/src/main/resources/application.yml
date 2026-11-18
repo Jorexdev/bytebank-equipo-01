@@ -17,6 +17,10 @@ spring:
 
 bytebank:
   internal-key: ${INTERNAL_KEY}
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiration: ${JWT_EXPIRATION_MINUTES:1440}
   services:
     accounts-url: ${ACCOUNTS_URL:http://localhost:8082}
     fraud-url: ${FRAUD_URL:http://localhost:8085}
