@@ -151,22 +151,22 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     @Test
     void rolledBackMovementIsNeverPublished() {
         assertThatThrownBy(() -> new TransactionTemplate(txManager).executeWithoutResult(status -> {
-            ledger.credit(new MovementRequest("TRF-RB", iban, 50, MovementType.TRANSFERENCIA_RECIBIDA, null));
+            ledger.credit(new MovementRequest("TRF-RB", iban, new BigDecimal("50"), MovementType.TRANSFERENCIA_RECIBIDA, null));
             throw new IllegalStateException("fallo tras guardar el movimiento");
         })).isInstanceOf(IllegalStateException.class);
 
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100");
         assertThat(jdbc.queryForObject("select count(*) from outbox", Integer.class)).isZero();
         // Sin espera fija: un movimiento confirmado después llega seguro, y Kafka conserva el orden por IBAN,
         // así que si el revertido hubiera salido habría llegado antes y aparecería aquí.
-        ledger.credit(new MovementRequest("TRF-AFTER-RB", iban, 1, MovementType.TRANSFERENCIA_RECIBIDA, null));
+        ledger.credit(new MovementRequest("TRF-AFTER-RB", iban, BigDecimal.ONE, MovementType.TRANSFERENCIA_RECIBIDA, null));
         assertThat(eventsFor(iban, Duration.ofSeconds(10))).singleElement()
                 .satisfies(e -> assertThat(e.value()).contains("TRF-AFTER-RB"));
     }
 
     @Test
     void committedMovementIsPublishedAndOutboxIsDrained() {
-        ledger.credit(new MovementRequest("TRF-OK", iban, 50, MovementType.TRANSFERENCIA_RECIBIDA, null));
+        ledger.credit(new MovementRequest("TRF-OK", iban, new BigDecimal("50"), MovementType.TRANSFERENCIA_RECIBIDA, null));
 
         assertThat(eventsFor(iban, Duration.ofSeconds(10))).hasSize(1);
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
@@ -175,7 +175,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
 
     @Test
     void committedDepositIsPublished() {
-        accountService.deposit(iban, 25, "Ingreso de ventanilla");
+        accountService.deposit(iban, new BigDecimal("25"), "Ingreso de ventanilla");
 
         assertThat(eventsFor(iban, Duration.ofSeconds(10))).singleElement()
                 .satisfies(e -> assertThat(e.value()).contains("INGRESO").contains("Ingreso de ventanilla"));
@@ -184,12 +184,12 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     @Test
     void rolledBackDepositIsNeverPublished() {
         assertThatThrownBy(() -> new TransactionTemplate(txManager).executeWithoutResult(status -> {
-            accountService.deposit(iban, 25, "Ingreso revertido");
+            accountService.deposit(iban, new BigDecimal("25"), "Ingreso revertido");
             throw new IllegalStateException("fallo tras guardar el movimiento");
         })).isInstanceOf(IllegalStateException.class);
-        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualTo(100);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100");
 
-        accountService.deposit(iban, 1, "Ingreso confirmado"); // mismo truco que en rolledBackMovementIsNeverPublished
+        accountService.deposit(iban, BigDecimal.ONE, "Ingreso confirmado"); // mismo truco que en rolledBackMovementIsNeverPublished
         assertThat(eventsFor(iban, Duration.ofSeconds(10))).singleElement()
                 .satisfies(e -> assertThat(e.value()).contains("Ingreso confirmado"));
     }
@@ -197,7 +197,7 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     @Test
     void concurrentRelaysKeepOrderPerIban() throws Exception {
         for (int i = 0; i < 150; i++) { // más de un lote, para que haya dos vaciados seguidos
-            ledger.credit(new MovementRequest("TRF-O" + i, iban, 1, MovementType.TRANSFERENCIA_RECIBIDA, null));
+            ledger.credit(new MovementRequest("TRF-O" + i, iban, BigDecimal.ONE, MovementType.TRANSFERENCIA_RECIBIDA, null));
         }
         ExecutorService pool = Executors.newFixedThreadPool(4);
         List<Future<?>> drains = new ArrayList<>();
