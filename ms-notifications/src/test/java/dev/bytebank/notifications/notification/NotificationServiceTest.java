@@ -34,7 +34,7 @@ class NotificationServiceTest {
     void doesNotSaveTwiceTheNotificationOfTheSameMovement() {
         when(notifications.existsByUserIdAndMovementId(2L, 154L)).thenReturn(true);
 
-        service.notifyOwner(new MovementEvent(154L, "ES7639990001000000000001", 2L, "INGRESO", 50, 50, null, null, Instant.now()));
+        service.notifyOwner(new MovementEvent(154L, "ES7639990001000000000001", 2L, "INGRESO", new BigDecimal("50.0"), new BigDecimal("50.0"), null, null, Instant.now()));
 
         verify(notifications, never()).save(any());
     }
