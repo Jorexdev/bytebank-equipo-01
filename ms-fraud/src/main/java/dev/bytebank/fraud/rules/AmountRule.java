@@ -3,7 +3,6 @@ package dev.bytebank.fraud.rules;
 import dev.bytebank.fraud.FraudProperties;
 import dev.bytebank.fraud.check.Verdict;
 import org.springframework.stereotype.Component;
-
 import java.util.Optional;
 
 /** Límite por operación: los importes por encima del umbral se bloquean. */
@@ -20,7 +19,7 @@ public class AmountRule implements FraudRule {
 
     @Override
     public Optional<Hit> evaluate(Context context) {
-        if (context.amount().compareTo(properties.blockThreshold()) > 0) {
+        if (context.amount().compareTo(properties.blockThreshold()) >= 0) {
             return Optional.of(new Hit(CODE, Verdict.BLOQUEADA));
         }
         return Optional.empty();
