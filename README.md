@@ -64,7 +64,8 @@ Notas para quien coja el proyecto:
 
 - **ms-cards** está a medias: se pueden listar y bloquear tarjetas, pero emitir y pagar devuelven 501.
   El contrato acordado está en [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
-- **ms-fraud** funciona por su cuenta, pero ms-transfers todavía no lo llama. Falta también la regla de frecuencia.
+- **ms-fraud** ya lo llama ms-transfers en cada transferencia. Falta la regla de frecuencia y el endpoint para que un
+  gestor revise las transferencias pendientes.
   Ver [docs/fraude.md](docs/fraude.md).
 - **ms-notifications** ya recibe los movimientos de Kafka y guarda los avisos, pero falta el endpoint para
   consultarlos. Contrato en [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
