@@ -20,6 +20,7 @@ bytebank:
   fraud:
     block-threshold: 20000.00
     external-review-threshold: 1000.00
+    review-threshold: 5000.00
 
 management:
   endpoints:
