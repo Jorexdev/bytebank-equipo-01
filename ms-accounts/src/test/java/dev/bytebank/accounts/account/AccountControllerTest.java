@@ -1,12 +1,21 @@
 package dev.bytebank.accounts.account;
 
-import dev.bytebank.accounts.movement.MovementService;
-import dev.bytebank.common.CommonAutoConfiguration;
-import dev.bytebank.common.error.ApiException;
-import dev.bytebank.common.security.JwtProperties;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import org.junit.jupiter.api.BeforeEach;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration;
@@ -18,7 +27,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.nio.charset.StandardCharsets;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
@@ -125,7 +136,7 @@ class AccountControllerTest {
     @Test
     void depositAsGestorReturns200() throws Exception {
         String iban = "ES0000000000000000000000";
-        when(accountService.deposit(anyString(), anyDouble(), anyString()))
+        when(accountService.deposit(anyString(), any(BigDecimal.class), anyString()))
                 .thenReturn(new Account(iban, 1L));
 
         mvc.perform(post("/api/accounts/{iban}/deposits", iban)
@@ -134,4 +145,67 @@ class AccountControllerTest {
                         .content("{\"amount\":100.0,\"concept\":\"Ingreso ventanilla\"}"))
                 .andExpect(status().isOk());
     }
+
+    // POST /deposits: la respuesta conserva la escala, "balance": 0.30 y no 0.3
+    @Test
+    void depositResponseKeepsScaleTwo() throws Exception {
+        String iban = Iban.generate(1);
+        Account account = new Account(iban, 1L);
+        account.credit(new BigDecimal("0.10"));
+        account.credit(new BigDecimal("0.20"));
+        when(accountService.deposit(eq(iban), any(BigDecimal.class), any()))
+                .thenReturn(account);
+
+        String body = mvc.perform(post("/api/accounts/{iban}/deposits", iban)
+                        .header("Authorization", TOKEN_GESTOR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":0.20,\"concept\":\"x\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        ObjectMapper mapper = new ObjectMapper()
+                .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+        Map<String, Object> json = mapper.readValue(body, new TypeReference<>() {});
+        assertThat((BigDecimal) json.get("balance")).isEqualTo(new BigDecimal("0.30"));
+
+        // y el texto crudo, que es lo que ve el cliente
+        assertThat(body).contains("\"balance\":0.30");
+    }
+
+    // POST /deposits: un importe con más de 2 decimales responde 400
+    @Test
+    void depositWithMoreThanTwoDecimalsReturns400() throws Exception {
+        mvc.perform(post("/api/accounts/{iban}/deposits", Iban.generate(1))
+                        .header("Authorization", TOKEN_GESTOR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":10.005}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+        verifyNoInteractions(accountService);
+    }
+
+    // POST /deposits: un importe enorme responde 400
+    @Test
+    void depositWithHugeAmountReturns400() throws Exception {
+        mvc.perform(post("/api/accounts/{iban}/deposits", Iban.generate(1))
+                        .header("Authorization", TOKEN_GESTOR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":1e30}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+        verifyNoInteractions(accountService);
+    }
+
+    // POST /deposits: "Infinity" responde 400
+    @Test
+    void depositWithInfinityReturns400() throws Exception {
+        mvc.perform(post("/api/accounts/{iban}/deposits", Iban.generate(1))
+                        .header("Authorization", TOKEN_GESTOR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":\"Infinity\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+        verifyNoInteractions(accountService);
+    }
+
 }

@@ -1,12 +1,12 @@
 package dev.bytebank.notifications.notification;
 
-import dev.bytebank.common.security.AuthUser;
-import dev.bytebank.common.web.PageResponse;
-import dev.bytebank.notifications.event.MovementEvent;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.math.BigDecimal;
+
+import dev.bytebank.common.security.AuthUser;
+import dev.bytebank.common.web.PageResponse;
+import dev.bytebank.notifications.event.MovementEvent;
 
 @Service
 public class NotificationService {
@@ -22,7 +22,7 @@ public class NotificationService {
         if (notifications.existsByUserIdAndMovementId(event.ownerId(), event.movementId())) return;
 
         notifications.save(new Notification(event.ownerId(), event.movementId(), event.iban(), event.type(),
-                BigDecimal.valueOf(event.amount()), BigDecimal.valueOf(event.balanceAfter()), event.reference(),
+                event.amount(), event.balanceAfter(), event.reference(),
                 NotificationMessages.of(event), event.createdAt()));
     }
 

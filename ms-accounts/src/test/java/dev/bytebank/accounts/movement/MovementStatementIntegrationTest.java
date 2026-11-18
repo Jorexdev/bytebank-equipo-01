@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.math.BigDecimal;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,7 +37,7 @@ class MovementStatementIntegrationTest extends IntegrationTest {
     @Test
     void firstPageIncludesTheNewestMovement() {
         for (int i = 0; i < 5; i++) {
-            movements.save(new Movement(account, MovementType.INGRESO, 10, "Movement " + i, null));
+            movements.save(new Movement(account, MovementType.INGRESO, new BigDecimal("10.0"), "Movement " + i, null));
         }
 
         var page = service.statement(account, null, null, 0, 20);
@@ -48,7 +49,7 @@ class MovementStatementIntegrationTest extends IntegrationTest {
     @Test
     void paginationHasNoGapsNorDuplicates() {
         for (int i = 0; i < 25; i++) {
-            movements.save(new Movement(account, MovementType.INGRESO, 10, "Movement " + i, null));
+            movements.save(new Movement(account, MovementType.INGRESO, new BigDecimal("10.0"), "Movement " + i, null));
         }
 
         var first = service.statement(account, null, null, 0, 20);
