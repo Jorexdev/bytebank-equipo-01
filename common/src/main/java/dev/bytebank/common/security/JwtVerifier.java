@@ -3,10 +3,8 @@ package dev.bytebank.common.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 /** Valida los JWT HS256 que emite ms-auth. */
@@ -15,7 +13,7 @@ public class JwtVerifier {
     private final SecretKey key;
 
     public JwtVerifier(JwtProperties properties) {
-        this.key = Keys.hmacShaKeyFor(properties.secret().getBytes(StandardCharsets.UTF_8));
+        this.key = properties.secretKey();
     }
 
     public Optional<AuthUser> verify(String token) {

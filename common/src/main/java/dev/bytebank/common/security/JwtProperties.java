@@ -1,7 +1,9 @@
 package dev.bytebank.common.security;
 
+import io.jsonwebtoken.security.Keys;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -14,7 +16,7 @@ public record JwtProperties(String secret, long expiration) {
     private static final int MIN_SECRET_BYTES = 32;
 
     public JwtProperties {
-        if (secret == null || secret.isBlank() || secret.contains("${")) {
+        if (secret == null || secret.isBlank()) {
             throw new IllegalArgumentException(
                     "bytebank.security.jwt.secret no está definida (defina la variable de entorno JWT_SECRET)");
         }
@@ -25,6 +27,11 @@ public record JwtProperties(String secret, long expiration) {
         if (expiration <= 0) {
             throw new IllegalArgumentException("bytebank.security.jwt.expiration debe ser mayor que cero");
         }
+    }
+
+    /** Construye la clave HS256 a partir del secreto configurado. */
+    public SecretKey secretKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Evita exponer la clave en logs o trazas. */

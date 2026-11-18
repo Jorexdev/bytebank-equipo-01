@@ -3,11 +3,9 @@ package dev.bytebank.auth.auth;
 import dev.bytebank.auth.user.User;
 import dev.bytebank.common.security.JwtProperties;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
@@ -19,7 +17,7 @@ public class JwtIssuer {
     private final Duration expiration;
 
     public JwtIssuer(JwtProperties properties) {
-        this.key = Keys.hmacShaKeyFor(properties.secret().getBytes(StandardCharsets.UTF_8));
+        this.key = properties.secretKey();
         this.expiration = Duration.ofMinutes(properties.expiration());
     }
 
