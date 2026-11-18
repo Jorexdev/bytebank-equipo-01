@@ -1,5 +1,6 @@
 package dev.bytebank.fraud.rules;
 
+import dev.bytebank.fraud.FraudProperties;
 import dev.bytebank.fraud.check.FraudCheckRepository;
 import dev.bytebank.fraud.check.Verdict;
 import org.springframework.stereotype.Component;
@@ -12,19 +13,19 @@ import java.util.Optional;
 public class FrequencyRule implements FraudRule {
 
     public static final String CODE = "FRECUENCIA_ALTA";
-    static final int MAX_TRANSFERS = 5;
-    static final Duration WINDOW = Duration.ofMinutes(10);
 
     private final FraudCheckRepository checks;
+    private final FraudProperties properties;
 
-    public FrequencyRule(FraudCheckRepository checks) {
+    public FrequencyRule(FraudCheckRepository checks, FraudProperties properties) {
         this.checks = checks;
+        this.properties = properties;
     }
 
     @Override
     public Optional<Hit> evaluate(Context context) {
-        long previous = checks.countSince(context.originIban(), Verdict.APROBADA, context.now().minus(WINDOW));
-        if (previous >= MAX_TRANSFERS) {
+        long previous = checks.countSince(context.originIban(), Verdict.APROBADA, context.now().minus(properties.frequencyWindow()));
+        if (previous >= properties.maxTransfers()) {
             return Optional.of(new Hit(CODE, Verdict.BLOQUEADA));
         }
         return Optional.empty();

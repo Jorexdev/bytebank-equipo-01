@@ -1,4 +1,4 @@
-package dev.bytebank.fraud.rules;
+package dev.bytebank.fraud;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
