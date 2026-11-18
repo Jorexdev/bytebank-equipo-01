@@ -5,8 +5,12 @@ ms-fraud recibe cada transferencia antes de ejecutarse y devuelve un veredicto:
 | Veredicto | Qué significa |
 |---|---|
 | `APROBADA` | Se puede ejecutar |
-| `REVISAR` | Un gestor tiene que revisarla antes de ejecutarla |
-| `BLOQUEADA` | Se rechaza |
+| `REVISAR` | Un gestor tiene que revisarla antes de ejecutarla: ms-transfers la deja `PENDIENTE` y no mueve dinero |
+| `BLOQUEADA` | Se rechaza (`400 TRANSACCION_FRAUDULENTA`) |
+
+ms-transfers llama a ms-fraud en cada transferencia, antes de ejecutarla. Además, cualquier transferencia de más
+de 5.000 € (configurable en `bytebank.transfers.review-threshold`) queda `PENDIENTE` aunque el veredicto sea
+`APROBADA`. Un gestor la aprueba o la rechaza desde ms-transfers.
 
 Si saltan varias reglas, gana el veredicto más grave. Cada validación queda guardada (tabla `fraud_checks`)
 y los gestores pueden consultarlas en `GET /api/fraud/checks?iban=...`.
@@ -37,6 +41,5 @@ Respuesta:
 
 ## Pendiente
 
-- ms-transfers todavía no llama a ms-fraud.
 - Implementar la regla de frecuencia.
 - Decidir qué hace ms-transfers si ms-fraud no responde. Negocio no lo ha cerrado.

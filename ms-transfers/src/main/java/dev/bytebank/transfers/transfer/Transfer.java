@@ -62,6 +62,11 @@ public class Transfer {
         return "TRF-" + id;
     }
 
+    public void markPending() {
+        this.status = TransferStatus.PENDIENTE;
+        this.rejectionReason = null;
+    }
+
     public void complete() {
         this.status = TransferStatus.COMPLETADA;
         this.rejectionReason = null;
