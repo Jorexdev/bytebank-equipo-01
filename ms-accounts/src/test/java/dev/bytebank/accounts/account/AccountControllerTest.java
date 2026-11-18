@@ -13,9 +13,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+import dev.bytebank.accounts.movement.MovementService;
+import dev.bytebank.common.CommonAutoConfiguration;
+import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.iban.Iban;
+import dev.bytebank.common.security.JwtProperties;
+import io.jsonwebtoken.Jwts;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration;
@@ -30,15 +36,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AccountController.class)
 @Import({CommonAutoConfiguration.class, RestClientAutoConfiguration.class})
@@ -63,7 +60,7 @@ class AccountControllerTest {
                 .subject(id)
                 .claim("email", email)
                 .claim("role", role)
-                .signWith(Keys.hmacShaKeyFor(jwtProperties.secret().getBytes(StandardCharsets.UTF_8)))
+                .signWith(jwtProperties.secretKey())
                 .compact();
     }
 
@@ -157,7 +154,7 @@ class AccountControllerTest {
                 .thenReturn(account);
 
         String body = mvc.perform(post("/api/accounts/{iban}/deposits", iban)
-                        .header("Authorization", TOKEN_GESTOR)
+                        .header("Authorization", tokenGestor)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":0.20,\"concept\":\"x\"}"))
                 .andExpect(status().isOk())
@@ -176,7 +173,7 @@ class AccountControllerTest {
     @Test
     void depositWithMoreThanTwoDecimalsReturns400() throws Exception {
         mvc.perform(post("/api/accounts/{iban}/deposits", Iban.generate(1))
-                        .header("Authorization", TOKEN_GESTOR)
+                        .header("Authorization", tokenGestor)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":10.005}"))
                 .andExpect(status().isBadRequest())
@@ -188,7 +185,7 @@ class AccountControllerTest {
     @Test
     void depositWithHugeAmountReturns400() throws Exception {
         mvc.perform(post("/api/accounts/{iban}/deposits", Iban.generate(1))
-                        .header("Authorization", TOKEN_GESTOR)
+                        .header("Authorization", tokenGestor)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":1e30}"))
                 .andExpect(status().isBadRequest())
@@ -200,7 +197,7 @@ class AccountControllerTest {
     @Test
     void depositWithInfinityReturns400() throws Exception {
         mvc.perform(post("/api/accounts/{iban}/deposits", Iban.generate(1))
-                        .header("Authorization", TOKEN_GESTOR)
+                        .header("Authorization", tokenGestor)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":\"Infinity\"}"))
                 .andExpect(status().isBadRequest())
