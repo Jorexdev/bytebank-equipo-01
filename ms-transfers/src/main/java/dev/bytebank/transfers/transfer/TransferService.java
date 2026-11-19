@@ -49,6 +49,13 @@ public class TransferService {
             throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No se encontró la cuenta de origen");
         }
 
+        if (Iban.isOwnBank(destination)) {
+            AccountsClient.AccountInfo destinationAccount = accountsClient.getAccount(destination);
+            if (!destinationAccount.isActive()) {
+                throw ApiException.badRequest("CUENTA_DESTINO_INACTIVA", "La cuenta de destino no está activa");
+            }
+        }
+
         FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
 
         if (checkResponse.verdict() != Verdict.APROBADA) {
@@ -62,6 +69,8 @@ public class TransferService {
             return transfers.save(transfer);
         }
 
+        // TODO(KAF-02/BUG-06): cuando la transferencia sea atómica (cargo y abono en una sola transacción de ms-accounts),
+        //  comprobar que si el abono falla se revierte el cargo y no queda aviso (outbox) de un movimiento que no existe.
         Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
         try {
             accountsClient.debit(transfer.ledgerReference(), origin, amount, request.concept());
