@@ -49,6 +49,13 @@ public class TransferService {
             throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No se encontró la cuenta de origen");
         }
 
+        if (Iban.isOwnBank(destination)) {
+            AccountsClient.AccountInfo destinationAccount = accountsClient.getAccount(destination);
+            if (!destinationAccount.isActive()) {
+                throw ApiException.badRequest("CUENTA_DESTINO_INACTIVA", "La cuenta de destino no está activa");
+            }
+        }
+
         FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
         if (checkResponse.verdict() != Verdict.APROBADA) {
             throw ApiException.badRequest("TRANSACCION_FRAUDULENTA", checkResponse.reasons().toString());
