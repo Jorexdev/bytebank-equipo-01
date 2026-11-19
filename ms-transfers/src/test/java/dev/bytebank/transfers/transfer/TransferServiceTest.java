@@ -54,6 +54,7 @@ class TransferServiceTest {
         service = new TransferService(transfers, accounts, fraud, THRESHOLD);
         lenient().when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(accounts.getAccount(ORIGIN)).thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 2L));
+        lenient().when(accounts.getAccount(DESTINATION)).thenReturn(new AccountInfo(DESTINATION, "ACTIVA", new BigDecimal("100.00"), 7L));
         lenient().when(fraud.check(any(), any(), any(), any()))
                 .thenReturn(new FraudClient.CheckResponse(1L, Verdict.APROBADA, List.of()));
     }
@@ -77,7 +78,7 @@ class TransferServiceTest {
     }
 
     @Test
-    void transferToBlockedAccountIsRejected() {
+    void rejectsWhenCreditFailsAfterDebit() {
         when(accounts.credit(anyString(), eq(DESTINATION), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
 
@@ -85,6 +86,31 @@ class TransferServiceTest {
 
         assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
         assertThat(t.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+    }
+
+    @Test
+    void blockedDestinationFailsBeforeDebit() {
+        lenient().when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountInfo(DESTINATION, "BLOQUEADA", new BigDecimal("100.00"), 7L));
+
+        assertThatThrownBy(() -> service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA))
+                .isInstanceOf(ApiException.class)
+                .hasFieldOrPropertyWithValue("code", "CUENTA_DESTINO_INACTIVA");
+
+        verify(accounts, never()).debit(any(), any(), any(), any());
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
+    void externalTransferDoesNotQueryDestinationAccount() {
+        String external = "ES9121000418450200051332";
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, external, new BigDecimal("50.00"), "Alquiler"), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+        verify(accounts, never()).getAccount(external);
+        verify(accounts, never()).credit(any(), any(), any(), any());
     }
 
     @Test
