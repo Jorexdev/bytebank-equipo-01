@@ -55,17 +55,22 @@ Todos los servicios devuelven los errores así:
 ## Flujo de una transferencia
 
 1. El cliente hace `POST /api/transfers` con origen, destino, importe y concepto.
-2. ms-transfers valida los datos y pregunta a ms-fraud (`POST /internal/fraud/check`) **antes** de ejecutar nada.
-   - `BLOQUEADA`: se responde `400 TRANSACCION_FRAUDULENTA` y no se mueve dinero.
-   - `APROBADA` o `REVISAR`: se sigue con el paso 3.
-3. La transferencia se guarda primero. Si el veredicto es `REVISAR` o el importe supera
-   `bytebank.transfers.review-threshold` (5.000 € por defecto), queda `PENDIENTE`: no hay cargo ni abono.
+2. ms-transfers valida los datos y pregunta a ms-fraud (`POST /internal/fraud/check`) **antes** de mover dinero.
+   ms-fraud aplica todas las reglas, incluido el importe alto: más de 5.000 € (configurable en
+   `bytebank.fraud.review-threshold`) devuelve `REVISAR`. ms-transfers no tiene umbrales propios, solo obedece
+   el veredicto.
+3. La transferencia se guarda primero, sin mover dinero, y según el veredicto:
+   - `APROBADA`: se sigue con el paso 4.
+   - `REVISAR`: queda `PENDIENTE_REVISION`, esperando a un gestor.
+   - `BLOQUEADA`: queda `RECHAZADA` con motivo `FRAUDE`.
 4. Si se ejecuta ya: carga el importe en la cuenta de origen (`POST /internal/accounts/debit` en ms-accounts) y,
    si el destino es de ByteBank, lo abona (`POST /internal/accounts/credit`). Queda `COMPLETADA` o `RECHAZADA`
    con el código del error.
-5. Las `PENDIENTE` las resuelve un gestor:
+5. Las `PENDIENTE_REVISION` las resuelve un gestor:
+   - `GET /api/transfers/pending`: la cola de transferencias pendientes.
    - `POST /api/transfers/{id}/approve`: ejecuta los mismos movimientos del paso 4.
-   - `POST /api/transfers/{id}/reject`: cierra la transferencia como `RECHAZADA` sin tocar el ledger.
+   - `POST /api/transfers/{id}/reject`: cierra la transferencia como `RECHAZADA` sin tocar el ledger
+     (motivo `RECHAZADA_POR_GESTOR` si no se indica otro).
    Cada transferencia se resuelve una sola vez; un segundo intento responde `409 TRANSFERENCIA_YA_RESUELTA`
    y la fila se bloquea durante la resolución para que dos gestores no muevan el dinero dos veces.
 

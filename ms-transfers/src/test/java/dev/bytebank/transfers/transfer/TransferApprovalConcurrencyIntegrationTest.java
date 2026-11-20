@@ -59,7 +59,7 @@ class TransferApprovalConcurrencyIntegrationTest extends IntegrationTest {
     @Test
     void twoGestoresApprovingTheSameTransferMoveTheMoneyOnlyOnce() throws Exception {
         Transfer pending = new Transfer(ORIGIN, DESTINATION, new BigDecimal("6000.00"), "Coche", ANA.id());
-        pending.markPending();
+        pending.markPendingReview();
         Long id = transfers.save(pending).getId();
 
         ExecutorService pool = Executors.newFixedThreadPool(2);

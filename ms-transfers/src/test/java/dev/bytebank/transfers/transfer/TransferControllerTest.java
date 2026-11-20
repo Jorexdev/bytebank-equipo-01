@@ -81,12 +81,12 @@ class TransferControllerTest {
     @Test
     void gestorSeesThePendingQueue() throws Exception {
         when(transferService.listPending(eq(0), eq(20), any()))
-                .thenReturn(new PageResponse<>(List.of(response(TransferStatus.PENDIENTE)), 0, 20, 1, 1));
+                .thenReturn(new PageResponse<>(List.of(response(TransferStatus.PENDIENTE_REVISION)), 0, 20, 1, 1));
 
         mvc.perform(get("/api/transfers/pending?page=0&size=20").header("Authorization", tokenGestor))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(7))
-                .andExpect(jsonPath("$.content[0].status").value("PENDIENTE"))
+                .andExpect(jsonPath("$.content[0].status").value("PENDIENTE_REVISION"))
                 .andExpect(jsonPath("$.totalElements").value(1));
     }
 
@@ -152,8 +152,8 @@ class TransferControllerTest {
     private Transfer transfer(TransferStatus status) {
         Transfer transfer = new Transfer("ES0000000000000000000001", "ES0000000000000000000002",
                 new BigDecimal("6000.00"), "Coche", 2L);
-        if (status == TransferStatus.PENDIENTE) {
-            transfer.markPending();
+        if (status == TransferStatus.PENDIENTE_REVISION) {
+            transfer.markPendingReview();
         } else if (status == TransferStatus.RECHAZADA) {
             transfer.reject("RECHAZADA_POR_GESTOR");
         }

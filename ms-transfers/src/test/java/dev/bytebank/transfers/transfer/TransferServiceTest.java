@@ -1,6 +1,7 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
@@ -38,7 +39,6 @@ class TransferServiceTest {
     static final String DESTINATION = Iban.generate(2);
     static final AuthUser ANA = new AuthUser(2L, "ana@bytebank.test", Role.CLIENTE);
     static final AuthUser GESTOR = new AuthUser(9L, "gestor@bytebank.test", Role.GESTOR);
-    static final BigDecimal THRESHOLD = new BigDecimal("5000.00");
 
     @Mock
     TransferRepository transfers;
@@ -51,7 +51,7 @@ class TransferServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new TransferService(transfers, accounts, fraud, THRESHOLD);
+        service = new TransferService(transfers, accounts, fraud);
         lenient().when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(accounts.getAccount(ORIGIN)).thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 2L));
         lenient().when(accounts.getAccount(DESTINATION)).thenReturn(new AccountInfo(DESTINATION, "ACTIVA", new BigDecimal("100.00"), 7L));
@@ -120,12 +120,34 @@ class TransferServiceTest {
     }
 
     @Test
-    void nonApprovedFraudVerdictIsRejected() {
-        when(fraud.check(any(), any(), any(), any()))
-                .thenReturn(new FraudClient.CheckResponse(2L, Verdict.BLOQUEADA, List.of("IMPORTE_ALTO")));
+    void blockedByFraudIsRejectedWithoutDebit() {
+        when(fraud.check(any(), any(), any(), any())).thenReturn(new FraudClient.CheckResponse(2L, Verdict.BLOQUEADA, List.of("IMPORTE_MAXIMO")));
 
-        assertThatThrownBy(() -> service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA))
-                .isInstanceOf(ApiException.class);
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("FRAUDE");
+        verify(accounts, never()).debit(any(), any(), any(), any());
+        verify(accounts, never()).credit(any(), any(), any(), any());
+        verify(transfers, times(1)).save(t);
+    }
+
+    @Test
+    void reviewVerdictLeavesTransferPendingWithoutDebit() {
+        when(fraud.check(any(), any(), any(), any())).thenReturn(new FraudClient.CheckResponse(3L, Verdict.REVISAR, List.of("IMPORTE_REVISION")));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
+        verify(accounts, never()).debit(any(), any(), any(), any());
+    }
+
+    @Test
+    void fraudServiceDownRejectsWithoutSavingNorDebiting() {
+        when(fraud.check(any(), any(), any(), any())).thenThrow(new RemoteUnavailableException("caído"));
+
+        assertThatThrownBy(() -> service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA)).isInstanceOf(RemoteUnavailableException.class);
+        verify(transfers, never()).save(any());
         verify(accounts, never()).debit(any(), any(), any(), any());
     }
 
@@ -142,46 +164,37 @@ class TransferServiceTest {
     }
 
     @Test
-    void transferOfExactlyTheThresholdExecutesImmediately() {
-        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("5000.00"), "Coche"), ANA);
+    void approvedVerdictExecutesEvenAboveTheAmountThatFraudNowReviews() {
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("6000.00"), "Coche"), ANA);
 
         assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
-        verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), eq(new BigDecimal("5000.00")), any());
+        verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), eq(new BigDecimal("6000.00")), any());
     }
 
     @Test
-    void transferAboveTheThresholdStaysPendingWithoutMovingMoney() {
-        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("5000.01"), "Coche"), ANA);
-
-        assertThat(t.getStatus()).isEqualTo(TransferStatus.PENDIENTE);
-        verify(accounts, never()).debit(any(), any(), any(), any());
-        verify(accounts, never()).credit(any(), any(), any(), any());
-    }
-
-    @Test
-    void reviewVerdictStaysPendingEvenBelowTheThreshold() {
+    void reviewVerdictLeavesPendingWhateverTheAmount() {
         when(fraud.check(any(), any(), any(), any()))
                 .thenReturn(new FraudClient.CheckResponse(3L, Verdict.REVISAR, List.of("EXTERNA_IMPORTE_ALTO")));
 
         Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("1500.00"), null), ANA);
 
-        assertThat(t.getStatus()).isEqualTo(TransferStatus.PENDIENTE);
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
         verify(accounts, never()).debit(any(), any(), any(), any());
         verify(accounts, never()).credit(any(), any(), any(), any());
     }
 
     @Test
-    void blockedFraudVerdictWinsOverTheAmountThreshold() {
+    void blockedFraudVerdictIsSavedAsRejectedInsteadOfFailing() {
         when(fraud.check(any(), any(), any(), any()))
                 .thenReturn(new FraudClient.CheckResponse(4L, Verdict.BLOQUEADA, List.of("IMPORTE_MAXIMO")));
 
-        assertThatThrownBy(() -> service.create(
-                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("20000.00"), null), ANA))
-                .isInstanceOfSatisfying(ApiException.class, e -> {
-                    assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    assertThat(e.getCode()).isEqualTo("TRANSACCION_FRAUDULENTA");
-                });
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("20000.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("FRAUDE");
         verify(accounts, never()).debit(any(), any(), any(), any());
+        verify(accounts, never()).credit(any(), any(), any(), any());
+        verify(transfers, times(1)).save(t);
     }
 
     @Test
@@ -275,13 +288,13 @@ class TransferServiceTest {
     @Test
     void listsPendingTransfersForGestores() {
         Transfer pending = pendingTransfer(new BigDecimal("6000.00"));
-        when(transfers.findByStatus(eq(TransferStatus.PENDIENTE), any()))
+        when(transfers.findByStatus(eq(TransferStatus.PENDIENTE_REVISION), any()))
                 .thenReturn(new PageImpl<>(List.of(pending), PageRequest.of(0, 20), 1));
 
         PageResponse<TransferResponse> page = service.listPending(0, 20, GESTOR);
 
         assertThat(page.content()).hasSize(1);
-        assertThat(page.content().get(0).status()).isEqualTo(TransferStatus.PENDIENTE);
+        assertThat(page.content().get(0).status()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
         assertThat(page.totalElements()).isEqualTo(1);
     }
 
@@ -313,7 +326,7 @@ class TransferServiceTest {
 
     private Transfer pendingTransfer(BigDecimal amount) {
         Transfer transfer = new Transfer(ORIGIN, DESTINATION, amount, "Coche", ANA.id());
-        transfer.markPending();
+        transfer.markPendingReview();
         return transfer;
     }
 }

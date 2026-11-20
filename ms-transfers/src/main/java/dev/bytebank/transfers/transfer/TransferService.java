@@ -11,7 +11,6 @@ import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -29,14 +28,11 @@ public class TransferService {
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
     private final FraudClient fraudClient;
-    private final BigDecimal reviewThreshold;
 
-    public TransferService(TransferRepository transfers, AccountsClient accountsClient, FraudClient fraudClient,
-                           @Value("${bytebank.transfers.review-threshold:5000.00}") BigDecimal reviewThreshold) {
+    public TransferService(TransferRepository transfers, AccountsClient accountsClient, FraudClient fraudClient) {
         this.transfers = transfers;
         this.accountsClient = accountsClient;
         this.fraudClient = fraudClient;
-        this.reviewThreshold = reviewThreshold;
     }
 
     public Transfer create(CreateTransferRequest request, AuthUser user) {
@@ -51,6 +47,7 @@ public class TransferService {
             throw ApiException.badRequest("MISMA_CUENTA", "La cuenta de origen y la de destino son la misma");
         }
         AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
+
         if (!originAccount.ownerId().equals(user.id())) {
             throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No se encontró la cuenta de origen");
         }
@@ -63,22 +60,21 @@ public class TransferService {
         }
 
         FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
-        if (checkResponse.verdict() != Verdict.APROBADA && checkResponse.verdict() != Verdict.REVISAR) {
-            throw ApiException.badRequest("TRANSACCION_FRAUDULENTA", checkResponse.reasons().toString());
+
+        if (checkResponse.verdict() != Verdict.APROBADA) {
+            var transfer = new Transfer(origin, destination, amount, request.concept(), user.id());
+            if (checkResponse.verdict() == Verdict.BLOQUEADA) {
+                transfer.reject("FRAUDE");
+            } else {
+                transfer.markPendingReview();
+            }
+            log.info("Transferencia de {} detenida por antifraude: {} {}", origin, checkResponse.verdict(), checkResponse.reasons());
+            return transfers.save(transfer);
         }
 
         // TODO(KAF-02/BUG-06): cuando la transferencia sea atómica (cargo y abono en una sola transacción de ms-accounts),
         //  comprobar que si el abono falla se revierte el cargo y no queda aviso (outbox) de un movimiento que no existe.
-        boolean needsReview = checkResponse.verdict() == Verdict.REVISAR || amount.compareTo(reviewThreshold) > 0;
-        Transfer transfer = new Transfer(origin, destination, amount, request.concept(), user.id());
-        if (needsReview) {
-            transfer.markPending();
-        }
-        transfer = transfers.save(transfer);
-        if (needsReview) {
-            log.info("Transferencia {} pendiente de revisión por un gestor", transfer.getId());
-            return transfer;
-        }
+        Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
         return execute(transfer);
     }
 
@@ -98,7 +94,7 @@ public class TransferService {
 
     public PageResponse<TransferResponse> listPending(int page, int size, AuthUser user) {
         requireGestor(user);
-        var result = transfers.findByStatus(TransferStatus.PENDIENTE, PageRequest.of(page, size, NEWEST_FIRST));
+        var result = transfers.findByStatus(TransferStatus.PENDIENTE_REVISION, PageRequest.of(page, size, NEWEST_FIRST));
         return PageResponse.of(result, TransferResponse::from);
     }
 
@@ -147,7 +143,7 @@ public class TransferService {
     private Transfer lockPending(Long id) {
         Transfer transfer = transfers.findByIdForUpdate(id)
                 .orElseThrow(() -> ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA", "No existe la transferencia " + id));
-        if (transfer.getStatus() != TransferStatus.PENDIENTE) {
+        if (transfer.getStatus() != TransferStatus.PENDIENTE_REVISION) {
             throw ApiException.conflict("TRANSFERENCIA_YA_RESUELTA", "La transferencia " + id + " ya está resuelta");
         }
         return transfer;

@@ -4,7 +4,6 @@ import dev.bytebank.common.iban.Iban;
 import dev.bytebank.fraud.FraudProperties;
 import dev.bytebank.fraud.check.Verdict;
 import org.springframework.stereotype.Component;
-
 import java.util.Optional;
 
 /** Las transferencias a otras entidades a partir de cierto importe las revisa un gestor. */
