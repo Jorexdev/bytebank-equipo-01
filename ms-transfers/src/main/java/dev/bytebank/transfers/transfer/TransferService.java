@@ -14,7 +14,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-
 import java.math.BigDecimal;
 
 @Service
@@ -45,6 +44,7 @@ public class TransferService {
             throw ApiException.badRequest("MISMA_CUENTA", "La cuenta de origen y la de destino son la misma");
         }
         AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
+
         if (!originAccount.ownerId().equals(user.id())) {
             throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No se encontró la cuenta de origen");
         }
@@ -57,8 +57,16 @@ public class TransferService {
         }
 
         FraudClient.CheckResponse checkResponse = fraudClient.check(origin, destination, user.id(), amount);
+
         if (checkResponse.verdict() != Verdict.APROBADA) {
-            throw ApiException.badRequest("TRANSACCION_FRAUDULENTA", checkResponse.reasons().toString());
+            var transfer = new Transfer(origin, destination, amount, request.concept(), user.id());
+            if (checkResponse.verdict() == Verdict.BLOQUEADA) {
+                transfer.reject("FRAUDE");
+            } else {
+                transfer.markPendingReview();
+            }
+            log.info("Transferencia de {} detenida por antifraude: {} {}", origin, checkResponse.verdict(), checkResponse.reasons());
+            return transfers.save(transfer);
         }
 
         // TODO(KAF-02/BUG-06): cuando la transferencia sea atómica (cargo y abono en una sola transacción de ms-accounts),

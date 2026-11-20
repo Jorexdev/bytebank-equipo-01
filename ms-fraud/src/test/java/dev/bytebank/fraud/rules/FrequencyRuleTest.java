@@ -39,7 +39,7 @@ class FrequencyRuleTest {
     }
 
     private static FraudProperties properties() {
-        return new FraudProperties(new BigDecimal("20000"), new BigDecimal("1000"), 5, Duration.ofMinutes(10));
+        return new FraudProperties(new BigDecimal("20000"), new BigDecimal("1000"), new BigDecimal("5000"), 5, Duration.ofMinutes(10));
     }
 
     private static FraudRule.Context context() {
@@ -50,7 +50,7 @@ class FrequencyRuleTest {
     @Test
     void usesConfiguredWindow() {
         FraudCheckRepository checks = mock(FraudCheckRepository.class);
-        var props = new FraudProperties(new BigDecimal("20000"), new BigDecimal("1000"), 5, Duration.ofMinutes(3));
+        var props = new FraudProperties(new BigDecimal("20000"), new BigDecimal("1000"), new BigDecimal("5000"), 5, Duration.ofMinutes(3));
         new FrequencyRule(checks, props).evaluate(context());
 
         verify(checks).countSince("ES7639990001000000000001", Verdict.APROBADA, NOW.minus(Duration.ofMinutes(3)));

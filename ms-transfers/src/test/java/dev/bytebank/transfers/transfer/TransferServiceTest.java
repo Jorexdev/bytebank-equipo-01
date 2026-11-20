@@ -1,6 +1,7 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
@@ -113,12 +114,32 @@ class TransferServiceTest {
     }
 
     @Test
-    void nonApprovedFraudVerdictIsRejected() {
-        when(fraud.check(any(), any(), any(), any()))
-                .thenReturn(new FraudClient.CheckResponse(2L, Verdict.BLOQUEADA, List.of("IMPORTE_ALTO")));
+    void blockedByFraudIsRejectedWithoutDebit() {
+        when(fraud.check(any(), any(), any(), any())).thenReturn(new FraudClient.CheckResponse(2L, Verdict.BLOQUEADA, List.of("IMPORTE_MAXIMO")));
 
-        assertThatThrownBy(() -> service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA))
-                .isInstanceOf(ApiException.class);
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("FRAUDE");
+        verify(accounts, never()).debit(any(), any(), any(), any());
+    }
+
+    @Test
+    void reviewVerdictLeavesTransferPendingWithoutDebit() {
+        when(fraud.check(any(), any(), any(), any())).thenReturn(new FraudClient.CheckResponse(3L, Verdict.REVISAR, List.of("IMPORTE_REVISION")));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
+        verify(accounts, never()).debit(any(), any(), any(), any());
+    }
+
+    @Test
+    void fraudServiceDownRejectsWithoutSavingNorDebiting() {
+        when(fraud.check(any(), any(), any(), any())).thenThrow(new RemoteUnavailableException("caído"));
+
+        assertThatThrownBy(() -> service.create(new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.TEN, null), ANA)).isInstanceOf(RemoteUnavailableException.class);
+        verify(transfers, never()).save(any());
         verify(accounts, never()).debit(any(), any(), any(), any());
     }
 

@@ -8,7 +8,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -65,6 +64,10 @@ public class Transfer {
     public void complete() {
         this.status = TransferStatus.COMPLETADA;
         this.rejectionReason = null;
+    }
+
+    public void markPendingReview() {
+        this.status = TransferStatus.PENDIENTE_REVISION;
     }
 
     public void reject(String reason) {
