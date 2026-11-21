@@ -5,8 +5,12 @@ ms-fraud recibe cada transferencia antes de ejecutarse y devuelve un veredicto:
 | Veredicto | Qué significa |
 |---|---|
 | `APROBADA` | Se puede ejecutar |
-| `REVISAR` | Un gestor tiene que revisarla antes de ejecutarla |
-| `BLOQUEADA` | Se rechaza |
+| `REVISAR` | Un gestor tiene que revisarla antes de ejecutarla: ms-transfers la deja `PENDIENTE_REVISION` y no mueve dinero |
+| `BLOQUEADA` | Se rechaza: ms-transfers la guarda como `RECHAZADA` con motivo `FRAUDE` y no mueve dinero |
+
+ms-transfers llama a ms-fraud en cada transferencia, antes de ejecutarla, y aplica el veredicto tal cual. La regla
+de importe alto (más de 5.000 €, configurable en `bytebank.fraud.review-threshold`) es una de las reglas de ms-fraud:
+ms-transfers no tiene umbrales propios. Las `PENDIENTE_REVISION` las resuelve un gestor desde ms-transfers.
 
 Si saltan varias reglas, gana el veredicto más grave. Cada validación queda guardada (tabla `fraud_checks`)
 y los gestores pueden consultarlas en `GET /api/fraud/checks?iban=...`.
@@ -58,8 +62,3 @@ Por qué:
 - Mandarlas a `REVISAR` llenaría la cola de los gestores de transferencias que nadie ha evaluado.
 
 Coste: sin ms-fraud no hay transferencias. Se podría mitigar más adelante con reintentos o un circuit breaker.
-
-## Pendiente
-
-- Implementar la regla de frecuencia.
-- Endpoint para que un gestor apruebe o rechace las transferencias en `PENDIENTE_REVISION`.

@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 
 @Service
@@ -21,6 +23,7 @@ public class TransferService {
 
     private static final Logger log = LoggerFactory.getLogger(TransferService.class);
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+    private static final String DEFAULT_REJECTION_REASON = "RECHAZADA_POR_GESTOR";
 
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
@@ -72,19 +75,62 @@ public class TransferService {
         // TODO(KAF-02/BUG-06): cuando la transferencia sea atómica (cargo y abono en una sola transacción de ms-accounts),
         //  comprobar que si el abono falla se revierte el cargo y no queda aviso (outbox) de un movimiento que no existe.
         Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
+        return execute(transfer);
+    }
+
+    public Transfer get(Long id, AuthUser user) {
+        Transfer transfer = transfers.findById(id)
+                .orElseThrow(() -> ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA", "No existe la transferencia " + id));
+        if (!user.isGestor() && !transfer.getCreatedBy().equals(user.id())) {
+            throw ApiException.forbidden("No puedes ver esta transferencia");
+        }
+        return transfer;
+    }
+
+    public PageResponse<TransferResponse> list(int page, int size, AuthUser user) {
+        var result = transfers.findByCreatedBy(user.id(), PageRequest.of(page, size, NEWEST_FIRST));
+        return PageResponse.of(result, TransferResponse::from);
+    }
+
+    public PageResponse<TransferResponse> listPending(int page, int size, AuthUser user) {
+        requireGestor(user);
+        var result = transfers.findByStatus(TransferStatus.PENDIENTE_REVISION, PageRequest.of(page, size, NEWEST_FIRST));
+        return PageResponse.of(result, TransferResponse::from);
+    }
+
+    @Transactional
+    public Transfer approve(Long id, AuthUser user) {
+        requireGestor(user);
+        return execute(lockPending(id));
+    }
+
+    @Transactional
+    public Transfer reject(Long id, String reason, AuthUser user) {
+        requireGestor(user);
+        Transfer transfer = lockPending(id);
+        transfer.reject(reason == null || reason.isBlank() ? DEFAULT_REJECTION_REASON : reason);
+        log.info("Transferencia {} rechazada por un gestor: {}", transfer.getId(), transfer.getRejectionReason());
+        return transfers.save(transfer);
+    }
+
+    /**
+     * Movimiento único en el ledger para el camino inmediato y el de aprobación.
+     * Carga en origen y, si el destino es de ByteBank, abona allí; deja la transferencia completada o rechazada.
+     */
+    private Transfer execute(Transfer transfer) {
         try {
-            accountsClient.debit(transfer.ledgerReference(), origin, amount, request.concept());
+            accountsClient.debit(transfer.ledgerReference(), transfer.getOriginIban(), transfer.getAmount(), transfer.getConcept());
         } catch (ApiException e) {
             transfer.reject(e.getCode());
             log.info("Transferencia {} rechazada: {}", transfer.getId(), e.getCode());
             return transfers.save(transfer);
         }
 
-        if (Iban.isOwnBank(destination)) {
+        if (Iban.isOwnBank(transfer.getDestinationIban())) {
             try {
-                accountsClient.credit(transfer.ledgerReference(), destination, amount, request.concept());
+                accountsClient.credit(transfer.ledgerReference(), transfer.getDestinationIban(), transfer.getAmount(), transfer.getConcept());
             } catch (ApiException e) {
-                log.warn("No se pudo abonar la transferencia {} en {}: {}", transfer.getId(), destination, e.getCode());
+                log.warn("No se pudo abonar la transferencia {} en {}: {}", transfer.getId(), transfer.getDestinationIban(), e.getCode());
                 transfer.reject(e.getCode());
                 return transfers.save(transfer);
             }
@@ -94,17 +140,18 @@ public class TransferService {
         return transfers.save(transfer);
     }
 
-    public Transfer get(Long id, AuthUser user) {
-        Transfer transfer = transfers.findById(id)
+    private Transfer lockPending(Long id) {
+        Transfer transfer = transfers.findByIdForUpdate(id)
                 .orElseThrow(() -> ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA", "No existe la transferencia " + id));
-        if (!transfer.getCreatedBy().equals(user.id())) {
-            throw ApiException.forbidden("No puedes ver esta transferencia");
+        if (transfer.getStatus() != TransferStatus.PENDIENTE_REVISION) {
+            throw ApiException.conflict("TRANSFERENCIA_YA_RESUELTA", "La transferencia " + id + " ya está resuelta");
         }
         return transfer;
     }
 
-    public PageResponse<TransferResponse> list(int page, int size, AuthUser user) {
-        var result = transfers.findByCreatedBy(user.id(), PageRequest.of(page, size, NEWEST_FIRST));
-        return PageResponse.of(result, TransferResponse::from);
+    private static void requireGestor(AuthUser user) {
+        if (!user.isGestor()) {
+            throw ApiException.forbidden("Solo un gestor puede revisar transferencias");
+        }
     }
 }

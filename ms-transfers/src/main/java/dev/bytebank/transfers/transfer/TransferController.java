@@ -3,6 +3,7 @@ package dev.bytebank.transfers.transfer;
 import dev.bytebank.common.security.CurrentUser;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
+import dev.bytebank.transfers.transfer.TransferDtos.RejectTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -39,8 +40,29 @@ public class TransferController {
         return transferService.list(page, size, CurrentUser.get());
     }
 
+    @GetMapping("/pending")
+    @PreAuthorize("hasRole('GESTOR')")
+    public PageResponse<TransferResponse> pending(@RequestParam(defaultValue = "0") int page,
+                                                  @RequestParam(defaultValue = "20") int size) {
+        return transferService.listPending(page, size, CurrentUser.get());
+    }
+
     @GetMapping("/{id}")
     public TransferResponse get(@PathVariable Long id) {
         return TransferResponse.from(transferService.get(id, CurrentUser.get()));
+    }
+
+    @PostMapping("/{id}/approve")
+    @PreAuthorize("hasRole('GESTOR')")
+    public TransferResponse approve(@PathVariable Long id) {
+        return TransferResponse.from(transferService.approve(id, CurrentUser.get()));
+    }
+
+    @PostMapping("/{id}/reject")
+    @PreAuthorize("hasRole('GESTOR')")
+    public TransferResponse reject(@PathVariable Long id,
+                                   @Valid @RequestBody(required = false) RejectTransferRequest request) {
+        String reason = request == null ? null : request.reason();
+        return TransferResponse.from(transferService.reject(id, reason, CurrentUser.get()));
     }
 }

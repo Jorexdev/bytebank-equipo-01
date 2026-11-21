@@ -55,10 +55,24 @@ Todos los servicios devuelven los errores así:
 ## Flujo de una transferencia
 
 1. El cliente hace `POST /api/transfers` con origen, destino, importe y concepto.
-2. ms-transfers comprueba los datos y registra la transferencia.
-3. Carga el importe en la cuenta de origen (`POST /internal/accounts/debit` en ms-accounts).
-4. Si el destino es de ByteBank, lo abona en la cuenta de destino (`POST /internal/accounts/credit`).
-5. La transferencia queda `COMPLETADA` o `RECHAZADA` con el código del error.
+2. ms-transfers valida los datos y pregunta a ms-fraud (`POST /internal/fraud/check`) **antes** de mover dinero.
+   ms-fraud aplica todas las reglas, incluido el importe alto: más de 5.000 € (configurable en
+   `bytebank.fraud.review-threshold`) devuelve `REVISAR`. ms-transfers no tiene umbrales propios, solo obedece
+   el veredicto.
+3. La transferencia se guarda primero, sin mover dinero, y según el veredicto:
+   - `APROBADA`: se sigue con el paso 4.
+   - `REVISAR`: queda `PENDIENTE_REVISION`, esperando a un gestor.
+   - `BLOQUEADA`: queda `RECHAZADA` con motivo `FRAUDE`.
+4. Si se ejecuta ya: carga el importe en la cuenta de origen (`POST /internal/accounts/debit` en ms-accounts) y,
+   si el destino es de ByteBank, lo abona (`POST /internal/accounts/credit`). Queda `COMPLETADA` o `RECHAZADA`
+   con el código del error.
+5. Las `PENDIENTE_REVISION` las resuelve un gestor:
+   - `GET /api/transfers/pending`: la cola de transferencias pendientes.
+   - `POST /api/transfers/{id}/approve`: ejecuta los mismos movimientos del paso 4.
+   - `POST /api/transfers/{id}/reject`: cierra la transferencia como `RECHAZADA` sin tocar el ledger
+     (motivo `RECHAZADA_POR_GESTOR` si no se indica otro).
+   Cada transferencia se resuelve una sola vez; un segundo intento responde `409 TRANSFERENCIA_YA_RESUELTA`
+   y la fila se bloquea durante la resolución para que dos gestores no muevan el dinero dos veces.
 
 Las transferencias a otras entidades solo cargan en origen: la liquidación con el otro banco queda fuera de este sistema.
 
@@ -67,4 +81,4 @@ Las transferencias a otras entidades solo cargan en origen: la liquidación con 
 | Rol | Puede |
 |---|---|
 | CLIENTE | Abrir cuentas, ver las suyas, hacer transferencias desde ellas, gestionar sus tarjetas |
-| GESTOR | Todo lo de consulta, bloquear y desbloquear cuentas, hacer ingresos en ventanilla, ver las validaciones antifraude |
+| GESTOR | Todo lo de consulta, bloquear y desbloquear cuentas, hacer ingresos en ventanilla, ver las validaciones antifraude, aprobar o rechazar transferencias pendientes |

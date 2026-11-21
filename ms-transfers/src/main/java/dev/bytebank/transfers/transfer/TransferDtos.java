@@ -19,6 +19,9 @@ public final class TransferDtos {
             @Size(max = 140) String concept) {
     }
 
+    public record RejectTransferRequest(@Size(max = 40) String reason) {
+    }
+
     public record TransferResponse(Long id, String originIban, String destinationIban, BigDecimal amount,
                                    String concept, TransferStatus status, String rejectionReason, Instant createdAt) {
 
