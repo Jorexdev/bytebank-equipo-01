@@ -2,8 +2,8 @@
 
 ## Estado actual (22 nov 2026)
 
-Las secciones "Fallo 1", "Fallo 2" y "Fallo 3" de más abajo son el diario histórico de cómo se resolvieron tres
-problemas. El estado contrastado con el código hoy es el siguiente. Referencia: `main` (`b3a76fb`, PR #22).
+Las secciones "Fallo 1", "Fallo 2", "Fallo 3" y "Fallo 4" de más abajo son el diario histórico de cómo se resolvieron
+cuatro problemas. El estado contrastado con el código hoy es el siguiente. Referencia: `main` (`b3a76fb`, PR #22).
 
 ### Resuelto
 
@@ -130,3 +130,67 @@ Estado `201` con `"status":"APROBADO"`, y un movimiento `PAGO_TARJETA` en la cue
 
 ### Limitación conocida (pendiente)
 Si ms-accounts hace *timeout* pero el cargo sí se llegó a aplicar, el pago queda `RECHAZADO` con `SERVICIO_NO_DISPONIBLE` (y la API devuelve `503`) con el dinero ya cobrado. Se arregla haciendo `reference` único e idempotente en ms-accounts (A-02) y reintentando el cargo desde ms-cards con la misma referencia. Queda como tarea aparte.
+
+---
+
+## Fallo 4: importe negativo en transferencias
+
+### Request
+
+```bash
+curl -s -X POST localhost:8080/api/transfers -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"originIban":"ES...","destinationIban":"ES...","amount":-50,"concept":"Prueba"}'
+```
+
+### Qué pasaba
+
+`CreateTransferRequest.amount` solo tenía `@NotNull`, así que `-50` pasaba la validación de la API. El rechazo
+llegaba después desde ms-fraud: su `CheckRequest` sí valida `@DecimalMin("0.01")` y devolvía un 400 genérico que
+ms-transfers propagaba como `ApiException`. El cliente veía el mismo `DATOS_NO_VALIDOS` que si el error hubiera estado
+en la API, pero sin `fields`, es decir, sin decir qué campo había fallado.
+
+Respuesta obtenida sin la validación en `TransferDtos`:
+
+```json
+{
+    "timestamp": "2026-11-22T22:12:03.138849632Z",
+    "status": 400,
+    "error": "Bad Request",
+    "code": "DATOS_NO_VALIDOS",
+    "message": "La petición tiene campos no válidos",
+    "path": "/api/transfers"
+}
+```
+
+Y la traza del rechazo en ms-fraud (los dos avisos `WARN` se generaron con logs temporales de depuración):
+
+```
+2026-11-22T22:21:36.004Z  WARN 1 --- [ms-fraud] [nio-8085-exec-2] d.b.common.error.GlobalExceptionHandler  : Validación fallida en POST /internal/fraud/check: {amount=must be greater than or equal to 0.01}
+2026-11-22T22:21:36.021Z  WARN 1 --- [ms-transfers] [nio-8083-exec-2] d.b.common.error.GlobalExceptionHandler  : Error POST /api/transfers en 400 DATOS_NO_VALIDOS: La petición tiene campos no válidos
+```
+
+### Solución (PR #22)
+
+`TransferDtos.java:20` añade `@DecimalMin("0.01")` y `@Digits(integer = 17, fraction = 2)` a `amount`, y
+`TransferController.java:33` mantiene `@Valid`. El rechazo ocurre ahora en la frontera de la API y la respuesta
+incluye el detalle del campo:
+
+```json
+{
+    "timestamp": "2026-11-22T22:27:49.787367923Z",
+    "status": 400,
+    "error": "Bad Request",
+    "code": "DATOS_NO_VALIDOS",
+    "message": "La petición tiene campos no válidos",
+    "path": "/api/transfers",
+    "fields": {
+        "amount": "must be greater than or equal to 0.01"
+    }
+}
+```
+
+### Test
+
+`TransferControllerTest.negativeAmountIs400` envía `-50` a `POST /api/transfers`, espera 400 `DATOS_NO_VALIDOS` con
+`fields.amount` y verifica que `TransferService` no llega a ejecutarse.
