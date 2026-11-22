@@ -19,6 +19,7 @@ ms-accounts  --(topic bytebank.movements)-->  ms-notifications  <--  GET /api/no
   "movementId": 154,
   "iban": "ES7639990001000000000001",
   "ownerId": 2,
+  "holderIds": [2, 9],
   "type": "TRANSFERENCIA_EMITIDA",
   "amount": -50.00,
   "balanceAfter": 2450.00,

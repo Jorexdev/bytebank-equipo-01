@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,6 +38,18 @@ class NotificationServiceTest {
         service.notifyOwner(new MovementEvent(154L, "ES7639990001000000000001", 2L, "INGRESO", new BigDecimal("50.0"), new BigDecimal("50.0"), null, null, Instant.now()));
 
         verify(notifications, never()).save(any());
+    }
+
+    @Test
+    void notifiesEveryHolderOnce() {
+        MovementEvent event = new MovementEvent(155L, "ES7639990001000000000001", 2L, "INGRESO",
+                new BigDecimal("50.00"), new BigDecimal("50.00"), null, null, Instant.now(), List.of(2L, 9L));
+        when(notifications.existsByUserIdAndMovementId(2L, 155L)).thenReturn(true);
+
+        service.notifyOwner(event);
+
+        verify(notifications, never()).save(argThat(n -> n.getUserId().equals(2L)));
+        verify(notifications).save(argThat(n -> n.getUserId().equals(9L) && n.getMovementId().equals(155L)));
     }
 
     @Test

@@ -37,7 +37,7 @@ public class CardService {
     /** Emite una tarjeta de débito para una cuenta del usuario. */
     public Card issue(String iban, AuthUser user) {
         var account = accountsClient.getAccount(Iban.normalize(iban));
-        if (!account.ownerId().equals(user.id())) {
+        if (!account.isHolder(user.id())) {
             throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No existe la cuenta " + iban);
         }
         if (!account.isActive()) {

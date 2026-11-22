@@ -8,6 +8,8 @@ import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.notifications.event.MovementEvent;
 
+import java.util.List;
+
 @Service
 public class NotificationService {
 
@@ -19,11 +21,15 @@ public class NotificationService {
 
     @Transactional
     public void notifyOwner(MovementEvent event) {
-        if (notifications.existsByUserIdAndMovementId(event.ownerId(), event.movementId())) return;
+        List<Long> recipients = event.holderIds() == null || event.holderIds().isEmpty()
+                ? List.of(event.ownerId()) : event.holderIds();
+        for (Long userId : recipients) {
+            if (notifications.existsByUserIdAndMovementId(userId, event.movementId())) continue;
 
-        notifications.save(new Notification(event.ownerId(), event.movementId(), event.iban(), event.type(),
-                event.amount(), event.balanceAfter(), event.reference(),
-                NotificationMessages.of(event), event.createdAt()));
+            notifications.save(new Notification(userId, event.movementId(), event.iban(), event.type(),
+                    event.amount(), event.balanceAfter(), event.reference(),
+                    NotificationMessages.of(event), event.createdAt()));
+        }
     }
 
     @Transactional(readOnly = true)

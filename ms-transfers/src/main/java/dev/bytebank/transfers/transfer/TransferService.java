@@ -48,7 +48,7 @@ public class TransferService {
         }
         AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
 
-        if (!originAccount.ownerId().equals(user.id())) {
+        if (!originAccount.isHolder(user.id())) {
             throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "No se encontró la cuenta de origen");
         }
 

@@ -1,5 +1,6 @@
 package dev.bytebank.cards.card;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.bytebank.cards.client.AccountsClient;
 import dev.bytebank.cards.client.AccountsClient.AccountInfo;
 import dev.bytebank.cards.payment.CardPayment;
@@ -64,6 +65,23 @@ class CardServiceTest {
         assertThat(card.getAccountIban()).isEqualTo(IBAN);
         assertThat(card.getUserId()).isEqualTo(2L);
         assertThat(card.getLast4()).matches("\\d{4}");
+    }
+
+    /** El nuevo titular puede pedir tarjeta usando el JSON real de GET /internal/accounts/{iban}. */
+    @Test
+    void issueSucceedsForHolderFromInternalResponse() throws Exception {
+        String json = """
+                {"iban":"%s","status":"ACTIVA","balance":10.00,"ownerId":99,"holderIds":[99,2]}
+                """.formatted(IBAN);
+        AccountInfo info = new ObjectMapper().readValue(json, AccountInfo.class);
+        when(accounts.getAccount(IBAN)).thenReturn(info);
+
+        Card card = service.issue(IBAN, ANA);
+
+        assertThat(info.holderIds()).containsExactly(99L, 2L);
+        assertThat(card.getUserId()).isEqualTo(2L);
+        assertThat(card.getAccountIban()).isEqualTo(IBAN);
+        verify(cards).save(any());
     }
 
     @Test
