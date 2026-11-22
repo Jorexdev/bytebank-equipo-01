@@ -13,7 +13,7 @@ x-urls-env: &urls-env
   NOTIFICATIONS_URL: http://ms-notifications:8086
 
 x-common-env: &common-env
-  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-demo}
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:?Falta SPRING_PROFILES_ACTIVE en .env (demo o prod)}
   DB_USER: ${POSTGRES_USER:-bytebank}
   DB_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
   INTERNAL_KEY: ${INTERNAL_KEY:?Falta INTERNAL_KEY en .env}
