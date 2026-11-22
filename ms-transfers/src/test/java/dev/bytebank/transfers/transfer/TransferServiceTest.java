@@ -1,5 +1,6 @@
 package dev.bytebank.transfers.transfer;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
@@ -67,13 +68,18 @@ class TransferServiceTest {
         verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), any(), any());
     }
 
+    /** El nuevo titular puede transferir usando el JSON real de GET /internal/accounts/{iban}. */
     @Test
-    void completesTransferFromAccountWhereUserIsCoHolder() {
-        when(accounts.getAccount(ORIGIN)).thenReturn(
-                new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L, 2L)));
+    void completesTransferForHolderFromInternalResponse() throws Exception {
+        String json = """
+                {"iban":"%s","status":"ACTIVA","balance":1000.00,"ownerId":99,"holderIds":[99,2]}
+                """.formatted(ORIGIN);
+        AccountInfo info = new ObjectMapper().readValue(json, AccountInfo.class);
+        when(accounts.getAccount(ORIGIN)).thenReturn(info);
 
         Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), "Cena"), ANA);
 
+        assertThat(info.holderIds()).containsExactly(99L, 2L);
         assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
         verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), any(), any());
     }

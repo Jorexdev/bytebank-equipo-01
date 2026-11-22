@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -28,6 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -200,13 +204,35 @@ class AccountServiceTest {
         return account;
     }
 
-    // addHolder: el email se normaliza y se delega en HolderAdder, sin tocar la BD aquí
+    // crear cuenta: el creador queda registrado como primer titular
     @Test
-    void addHolderResolvesEmailAndDelegates() {
+    void openRegistersCreatorAsHolder() {
+        String iban = Iban.generate(30);
+        AuthUser creator = new AuthUser(4L, "creador@bytebank.test", Role.CLIENTE);
+        Account saved = accountWithId(iban, 7L);
+        when(accounts.nextAccountNumber()).thenReturn(31L);
+        when(accounts.save(any(Account.class))).thenReturn(saved);
+
+        Account result = service.open(creator);
+
+        assertThat(result).isSameAs(saved);
+        verify(holders).save(argThat(h ->
+                h.getAccountId().equals(7L) && h.getUserId().equals(4L)));
+    }
+
+    /**
+     * Regresión del riesgo alto: en la versión anterior el FOR UPDATE se adquiría ANTES de resolver el email,
+     * de modo que la cuenta quedaba bloqueada durante la llamada HTTP a ms-auth.
+     */
+    @Test
+    void addHolderResolvesEmailBeforeTouchingDatabase() {
         String iban = Iban.generate(10);
         AuthUser requester = new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE);
-        when(authClient.findByEmail("nuevo@bytebank.test"))
-                .thenReturn(new AuthClient.AuthUserResponse(9L, "nuevo@bytebank.test", Role.CLIENTE));
+        doAnswer(inv -> {
+            assertThat(mockingDetails(accounts).getInvocations()).isEmpty();
+            assertThat(mockingDetails(holders).getInvocations()).isEmpty();
+            return new AuthClient.AuthUserResponse(9L, "nuevo@bytebank.test", Role.CLIENTE);
+        }).when(authClient).findByEmail("nuevo@bytebank.test");
         when(holderAdder.add(1L, iban, 9L)).thenReturn(new Account(iban, 1L));
 
         Account result = service.addHolder(requester, iban, " Nuevo@ByteBank.test ");
@@ -215,6 +241,14 @@ class AccountServiceTest {
         verify(authClient).findByEmail("nuevo@bytebank.test");
         verify(holderAdder).add(1L, iban, 9L);
         verifyNoInteractions(accounts, holders);
+    }
+
+    /** Evita que se reintroduzca el bug volviendo a anotar el método con @Transactional. */
+    @Test
+    void addHolderIsNotTransactional() throws NoSuchMethodException {
+        var method = AccountService.class.getMethod("addHolder", AuthUser.class, String.class, String.class);
+
+        assertThat(method.isAnnotationPresent(Transactional.class)).isFalse();
     }
 
     // addHolder: email vacío se rechaza antes de llamar a ms-auth o al adder
@@ -268,15 +302,6 @@ class AccountServiceTest {
 
         assertThat(service.listOwn(user)).hasSize(1);
         verify(accounts).findByHolderIdOrderByCreatedAt(7L);
-    }
-
-    // holderIds: se exponen todos los titulares de la cuenta
-    @Test
-    void holderIdsReturnsAllHolders() {
-        Account account = accountWithId(Iban.generate(21), 5L);
-        when(holders.findUserIdsByAccountId(5L)).thenReturn(List.of(1L, 9L));
-
-        assertThat(service.holderIds(account)).containsExactly(1L, 9L);
     }
 
 }

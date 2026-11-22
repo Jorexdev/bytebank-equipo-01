@@ -6,12 +6,14 @@ import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.iban.Iban;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -20,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -89,6 +92,30 @@ class HolderAdderTest {
                 .isEqualTo("CUENTA_NO_ENCONTRADA");
         verify(accounts).findByIbanForUpdate(iban);
         verify(holders, never()).save(any());
+    }
+
+    /** Regresión del riesgo medio asociado: la titularidad se comprueba antes de bloquear la cuenta. */
+    @Test
+    void checksHolderBeforeLockingAccount() {
+        String iban = Iban.generate(46);
+        givenAccount(iban, accountWithId(iban, 5L));
+        when(holders.existsByAccountIdAndUserId(5L, 1L)).thenReturn(true);
+        when(holders.countByAccountId(5L)).thenReturn(1L);
+
+        service.add(1L, iban, 9L);
+
+        InOrder order = inOrder(accounts, holders);
+        order.verify(accounts).findByIban(iban);
+        order.verify(holders).existsByAccountIdAndUserId(5L, 1L);
+        order.verify(accounts).findByIbanForUpdate(iban);
+    }
+
+    /** Garantiza que el bloqueo y las comprobaciones finales sigan en una única transacción. */
+    @Test
+    void addIsTransactional() throws NoSuchMethodException {
+        var method = HolderAdder.class.getMethod("add", Long.class, String.class, Long.class);
+
+        assertThat(method.isAnnotationPresent(Transactional.class)).isTrue();
     }
 
     @Test

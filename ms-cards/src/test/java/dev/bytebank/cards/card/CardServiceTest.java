@@ -1,5 +1,6 @@
 package dev.bytebank.cards.card;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.bytebank.cards.client.AccountsClient;
 import dev.bytebank.cards.client.AccountsClient.AccountInfo;
 import dev.bytebank.cards.payment.CardPayment;
@@ -16,7 +17,6 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -67,14 +67,20 @@ class CardServiceTest {
         assertThat(card.getLast4()).matches("\\d{4}");
     }
 
+    /** El nuevo titular puede pedir tarjeta usando el JSON real de GET /internal/accounts/{iban}. */
     @Test
-    void issueSucceedsForCoHolder() {
-        when(accounts.getAccount(IBAN)).thenReturn(
-                new AccountInfo(IBAN, "ACTIVA", BigDecimal.TEN, 99L, List.of(99L, 2L)));
+    void issueSucceedsForHolderFromInternalResponse() throws Exception {
+        String json = """
+                {"iban":"%s","status":"ACTIVA","balance":10.00,"ownerId":99,"holderIds":[99,2]}
+                """.formatted(IBAN);
+        AccountInfo info = new ObjectMapper().readValue(json, AccountInfo.class);
+        when(accounts.getAccount(IBAN)).thenReturn(info);
 
         Card card = service.issue(IBAN, ANA);
 
+        assertThat(info.holderIds()).containsExactly(99L, 2L);
         assertThat(card.getUserId()).isEqualTo(2L);
+        assertThat(card.getAccountIban()).isEqualTo(IBAN);
         verify(cards).save(any());
     }
 
