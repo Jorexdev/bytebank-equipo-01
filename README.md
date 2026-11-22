@@ -35,6 +35,7 @@ docker compose up --build
 | `POSTGRES_PASSWORD` | Contraseña de PostgreSQL| Obligatoria: Compose no arranca si falta o está vacía. |
 | `INTERNAL_KEY` | Clave de las llamadas internas (cabecera `X-Internal-Key` en `/internal/**`). | Obligatoria: Compose no arranca si falta o está vacía. |
 | `JWT_SECRET` | Clave de firma HS256 de los tokens. | Obligatoria y de al menos 32 bytes (256 bits); Compose no arranca si falta o está vacía. Genera uno con `openssl rand -base64 48`.|
+| `SPRING_PROFILES_ACTIVE` | Perfil de Spring: `demo` crea usuarios y cuentas de prueba; `prod` para despliegues. | Obligatoria: Compose no arranca si falta o está vacía. Usa `demo` solo en desarrollo. |
 
 ### Tiempo de expiración (definido en docker-compose)
 - `JWT_EXPIRATION_MINUTES`
@@ -44,7 +45,8 @@ docker compose up --build
 La API queda en `http://localhost:8080`. Cada servicio publica su Swagger en
 `http://localhost:<puerto>/swagger-ui.html` (por ejemplo, `http://localhost:8082/swagger-ui.html` para ms-accounts).
 
-Con el perfil `demo` (el que viene en `.env.example`) se crean estos usuarios y unas cuentas con saldo:
+Con `SPRING_PROFILES_ACTIVE=demo` en `.env` (solo desarrollo; en despliegues usa `prod`) se crean estos usuarios y
+unas cuentas con saldo:
 
 | Usuario | Contraseña | Rol |
 |---|---|---|
