@@ -1,5 +1,27 @@
 # Diagnóstico de ByteBank
 
+## Estado actual (22 nov 2026)
+
+Las secciones "Fallo 1", "Fallo 2" y "Fallo 3" de más abajo son el diario histórico de cómo se resolvieron tres
+problemas. El estado contrastado con el código hoy es el siguiente. Referencia: `main` (`b3a76fb`, PR #22).
+
+### Resuelto
+
+| Tema | Evidencia |
+|---|---|
+| Login: `AUTH_URL` apuntaba al puerto 8018 | `docker-compose.yml:8` → `AUTH_URL: http://ms-auth:8081` |
+| Avisos de movimientos que no existen (KAF-02) | `MovementPublisher.java:27-35` escribe en outbox; `OutboxRelay.java:23-33` publica; `V5__outbox.sql` |
+| Antifraude no invocado en transferencias | `TransferService.java:62-73` consulta a ms-fraud antes de mover dinero |
+| Emitir y pagar con tarjeta (TAR-01) | `CardService.java:37-48` y `:68-86`; `PaymentReserver.java` |
+| Consultar avisos (KAF-01) | `NotificationController.java:22-28` (`GET /api/notifications`) |
+| Importes monetarios con `double` | `V4__balances_numeric.sql` los convierte a `NUMERIC(19,2)`; `LedgerDtos.java:21` usa `BigDecimal` |
+| CI que nunca fallaba por build roto | `.github/workflows/ci.yml:21-22` → `mvn -B verify` |
+| Cuentas con varios titulares | `V6__account_holders.sql`; las respuestas incluyen `holderIds` |
+| Importe de transferencias sin validar en ms-transfers (BUG-01) | `TransferDtos.java:20` con `@DecimalMin("0.01")` y `@Digits(17,2)`; `@Valid` en `TransferController.java:33` |
+| `/api/fraud/checks` accesible por clientes | `FraudController.java:35` con `@PreAuthorize("hasRole('GESTOR')")`; `/internal/fraud/check` no se tocó |
+| Perfil `demo` activo por defecto | `docker-compose.yml:16` usa `${SPRING_PROFILES_ACTIVE:?...}` y `.env.example:8` lo deja vacío; los seeders siguen con `@Profile("demo")` |
+
+---
 
 ## Fallo 1: no funciona el login
 
@@ -16,14 +38,11 @@ curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json
 ### Causa del 1er error 500
 En el fichero [docker-compose.yml](/docker-compose.yml), la variable de entorno `AUTH_URL` apunta al puerto del microservicio de autenticación, pero ese puerto no es correcto, porque realmente dicho microservicio está expuesto en el puerto 8081 en vez del 8018.
 
-### Solución
+### Solución (ya aplicada)
 
-Modificar la línea 12 en [docker-compose.yml](/docker-compose.yml). Cambiar esto:
-```yaml
-AUTH_URL: http://ms-auth:8018
-```
+La corrección está aplicada en [docker-compose.yml](/docker-compose.yml): `AUTH_URL` se define en la línea 8 y vale
+`http://ms-auth:8081` (en el diagnóstico original estaba en la línea 12 con el puerto 8018):
 
-Por esto:
 ```yaml
 AUTH_URL: http://ms-auth:8081
 ```
@@ -38,12 +57,12 @@ curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json
 {"timestamp":"2026-11-10T03:40:25.858+00:00","path":"/api/auth/login","status":500,"error":"Internal Server Error","requestId":"33fc155f-1"}
 ```
 
-### 2ª request
+### 3ª request
 ```bash
 curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{"email":"ana@bytebank.test","password":"Cliente1234!"}'
 ```
 
-### 2ª response (OK: con el token, el tipo de token, y su duración)
+### 3ª response (OK: con el token, el tipo de token, y su duración)
 ```bash
 {"token":"eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJhbmFAYnl0ZWJhbmsudGVzdCIsInJvbGUiOiJDTElFTlRFIiwiaWF0IjoxNzk0MjgyNTMyLCJleHAiOjE3OTQzNjg5MzJ9.N_LBAAI6twOq_bmcDovFxdQGP-CJIEpRYp13AGGPo3jj6OfvyrFJv3zoVwapcd7E","tokenType":"Bearer","expiresInSeconds":86400}
 ```
@@ -59,8 +78,8 @@ curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json
 - Si el envío fallaba de forma asíncrona, nadie se enteraba y el movimiento quedaba sin aviso para siempre. El error de serialización JSON se tragaba con un log.
 
 ### Solución: patrón *transactional outbox*
-- `MovementPublisher.publish` ya no habla con Kafka: guarda el evento en la tabla `outbox` (entidad `OutboxEvent`, repositorio `OutboxRepository`, migración `V4__outbox.sql`) **en la misma transacción que el movimiento**. Si hay rollback, desaparece también el evento.
-- `OutboxRelay` (`@Scheduled`, cada 500 ms) lee un lote de hasta 100 eventos con `FOR UPDATE SKIP LOCKED`, los envía a Kafka, espera la confirmación y los borra. Si Kafka falla, hace rollback y reintenta, así que no se pierde ningún aviso.
+- `MovementPublisher.publish` ya no habla con Kafka: guarda el evento en la tabla `outbox` (entidad `OutboxEvent`, repositorio `OutboxRepository`, migración `V5__outbox.sql`) **en la misma transacción que el movimiento**. Si hay rollback, desaparece también el evento.
+- `OutboxRelay` (`@Scheduled`, cada 500 ms) toma un bloqueo advisory (`pg_try_advisory_xact_lock(1)`) para que solo una réplica vacíe la outbox a la vez, lee un lote de hasta 100 eventos, los envía a Kafka, espera la confirmación y los borra. Si Kafka falla, hace rollback y reintenta, así que no se pierde ningún aviso. No hay `FOR UPDATE SKIP LOCKED`: la exclusión entre réplicas es solo el bloqueo advisory.
 - Se borra la fila al publicar en vez de marcarla, así la tabla casi siempre está vacía y no necesita limpieza ni índices extra.
 
 ### Duplicados
