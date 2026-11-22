@@ -2,8 +2,8 @@ package dev.bytebank.accounts.account;
 
 import dev.bytebank.accounts.client.AuthClient;
 import dev.bytebank.accounts.event.MovementPublisher;
-import dev.bytebank.accounts.holder.AccountHolder;
 import dev.bytebank.accounts.holder.AccountHolderRepository;
+import dev.bytebank.accounts.holder.HolderAdder;
 import dev.bytebank.accounts.movement.Movement;
 import dev.bytebank.accounts.movement.MovementRepository;
 import dev.bytebank.common.error.ApiException;
@@ -28,8 +28,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -52,6 +50,9 @@ class AccountServiceTest {
 
     @Mock
     AuthClient authClient;
+
+    @Mock
+    HolderAdder holderAdder;
 
     @InjectMocks
     AccountService service;
@@ -199,120 +200,63 @@ class AccountServiceTest {
         return account;
     }
 
-    private void givenHolderExists(Long accountId, Long userId) {
-        when(holders.existsByAccountIdAndUserId(accountId, userId)).thenReturn(true);
-    }
-
-    // addHolder: un titular añade a otro cliente por email
+    // addHolder: el email se normaliza y se delega en HolderAdder, sin tocar la BD aquí
     @Test
-    void addHolderSavesNewHolder() {
+    void addHolderResolvesEmailAndDelegates() {
         String iban = Iban.generate(10);
-        Account account = accountWithId(iban, 5L);
         AuthUser requester = new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE);
-        givenHolderExists(5L, 1L);
-        when(accounts.findByIbanForUpdate(iban)).thenReturn(Optional.of(account));
         when(authClient.findByEmail("nuevo@bytebank.test"))
                 .thenReturn(new AuthClient.AuthUserResponse(9L, "nuevo@bytebank.test", Role.CLIENTE));
-        when(holders.countByAccountId(5L)).thenReturn(1L);
+        when(holderAdder.add(1L, iban, 9L)).thenReturn(new Account(iban, 1L));
 
-        service.addHolder(requester, iban, " Nuevo@ByteBank.test ");
+        Account result = service.addHolder(requester, iban, " Nuevo@ByteBank.test ");
 
-        verify(holders).save(argThat(h ->
-                h.getAccountId().equals(5L) && h.getUserId().equals(9L)));
+        assertThat(result.getIban()).isEqualTo(iban);
+        verify(authClient).findByEmail("nuevo@bytebank.test");
+        verify(holderAdder).add(1L, iban, 9L);
+        verifyNoInteractions(accounts, holders);
     }
 
-    // addHolder: quien llama no es titular -> 404
+    // addHolder: email vacío se rechaza antes de llamar a ms-auth o al adder
     @Test
-    void addHolderRejectsRequesterWhoIsNotHolder() {
-        String iban = Iban.generate(11);
-        Account account = accountWithId(iban, 5L);
-        when(accounts.findByIbanForUpdate(iban)).thenReturn(Optional.of(account));
-
-        assertThatThrownBy(() -> service.addHolder(new AuthUser(3L, "otro@bytebank.test", Role.CLIENTE),
-                iban, "nuevo@bytebank.test"))
+    void addHolderRejectsBlankEmailBeforeCallingRemote() {
+        assertThatThrownBy(() -> service.addHolder(
+                new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE), Iban.generate(11), "  "))
                 .isInstanceOf(ApiException.class)
-                .satisfies(e -> {
-                    ApiException ex = (ApiException) e;
-                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
-                    assertThat(ex.getCode()).isEqualTo("CUENTA_NO_ENCONTRADA");
-                });
-        verifyNoInteractions(authClient);
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo("EMAIL_NO_VALIDO");
+        verifyNoInteractions(authClient, holderAdder);
     }
 
-    // addHolder:email inexistente -> se propaga el 404 de ms-auth
+    // addHolder: el 404 de ms-auth se propaga tal cual (enumeración solo reportada, no unificada)
     @Test
     void addHolderPropagatesUnknownEmail() {
-        String iban = Iban.generate(12);
-        Account account = accountWithId(iban, 5L);
-        givenHolderExists(5L, 1L);
-        when(accounts.findByIbanForUpdate(iban)).thenReturn(Optional.of(account));
         when(authClient.findByEmail(anyString())).thenThrow(
                 ApiException.notFound("USUARIO_NO_ENCONTRADO", "No existe un usuario con ese email"));
 
-        assertThatThrownBy(() -> service.addHolder(new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE),
-                iban, "nadie@bytebank.test"))
+        assertThatThrownBy(() -> service.addHolder(
+                new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE), Iban.generate(12), "nadie@bytebank.test"))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).getCode())
                 .isEqualTo("USUARIO_NO_ENCONTRADO");
+        verifyNoInteractions(holderAdder);
     }
 
     // addHolder: solo se puede añadir a un CLIENTE
     @Test
     void addHolderRejectsGestor() {
-        String iban = Iban.generate(13);
-        Account account = accountWithId(iban, 5L);
-        givenHolderExists(5L, 1L);
-        when(accounts.findByIbanForUpdate(iban)).thenReturn(Optional.of(account));
         when(authClient.findByEmail(anyString()))
                 .thenReturn(new AuthClient.AuthUserResponse(8L, "gestor@bytebank.test", Role.GESTOR));
 
-        assertThatThrownBy(() -> service.addHolder(new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE),
-                iban, "gestor@bytebank.test"))
+        assertThatThrownBy(() -> service.addHolder(
+                new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE), Iban.generate(13), "gestor@bytebank.test"))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> {
                     ApiException ex = (ApiException) e;
                     assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                     assertThat(ex.getCode()).isEqualTo("TITULAR_NO_VALIDO");
                 });
-    }
-
-    // addHolder: titular repetido -> 409
-    @Test
-    void addHolderRejectsDuplicate() {
-        String iban = Iban.generate(14);
-        Account account = accountWithId(iban, 5L);
-        givenHolderExists(5L, 1L);
-        when(accounts.findByIbanForUpdate(iban)).thenReturn(Optional.of(account));
-        when(authClient.findByEmail(anyString()))
-                .thenReturn(new AuthClient.AuthUserResponse(1L, "titular@bytebank.test", Role.CLIENTE));
-
-        assertThatThrownBy(() -> service.addHolder(new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE),
-                iban, "titular@bytebank.test"))
-                .isInstanceOf(ApiException.class)
-                .extracting(e -> ((ApiException) e).getCode())
-                .isEqualTo("YA_ES_TITULAR");
-    }
-
-    // addHolder: máximo 4 titulares
-    @Test
-    void addHolderRejectsWhenMaxHoldersReached() {
-        String iban = Iban.generate(15);
-        Account account = accountWithId(iban, 5L);
-        givenHolderExists(5L, 1L);
-        when(accounts.findByIbanForUpdate(iban)).thenReturn(Optional.of(account));
-        when(authClient.findByEmail(anyString()))
-                .thenReturn(new AuthClient.AuthUserResponse(9L, "nuevo@bytebank.test", Role.CLIENTE));
-        when(holders.countByAccountId(5L)).thenReturn(4L);
-
-        assertThatThrownBy(() -> service.addHolder(new AuthUser(1L, "titular@bytebank.test", Role.CLIENTE),
-                iban, "nuevo@bytebank.test"))
-                .isInstanceOf(ApiException.class)
-                .satisfies(e -> {
-                    ApiException ex = (ApiException) e;
-                    assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
-                    assertThat(ex.getCode()).isEqualTo("MAXIMO_TITULARES");
-                });
-        verify(holders, never()).save(any(AccountHolder.class));
+        verifyNoInteractions(holderAdder);
     }
 
     // listOwn: también devuelve cuentas de las que el usuario es cotitular

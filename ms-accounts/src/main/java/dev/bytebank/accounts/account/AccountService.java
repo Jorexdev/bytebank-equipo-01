@@ -4,6 +4,7 @@ import dev.bytebank.accounts.client.AuthClient;
 import dev.bytebank.accounts.event.MovementPublisher;
 import dev.bytebank.accounts.holder.AccountHolder;
 import dev.bytebank.accounts.holder.AccountHolderRepository;
+import dev.bytebank.accounts.holder.HolderAdder;
 import dev.bytebank.accounts.movement.Movement;
 import dev.bytebank.accounts.movement.MovementRepository;
 import dev.bytebank.accounts.movement.MovementType;
@@ -13,7 +14,6 @@ import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,21 +25,22 @@ import java.util.Locale;
 public class AccountService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountService.class);
-    private static final int MAX_HOLDERS = 4;
 
     private final AccountRepository accounts;
     private final MovementRepository movements;
     private final MovementPublisher publisher;
     private final AccountHolderRepository holders;
     private final AuthClient authClient;
+    private final HolderAdder holderAdder;
 
     public AccountService(AccountRepository accounts, MovementRepository movements, MovementPublisher publisher,
-                          AccountHolderRepository holders, AuthClient authClient) {
+                          AccountHolderRepository holders, AuthClient authClient, HolderAdder holderAdder) {
         this.accounts = accounts;
         this.movements = movements;
         this.publisher = publisher;
         this.holders = holders;
         this.authClient = authClient;
+        this.holderAdder = holderAdder;
     }
 
     @Transactional
@@ -65,19 +66,11 @@ public class AccountService {
         );
     }
 
-    /** Añade un titular a la cuenta resolviendo su email en ms-auth. Máximo 4 titulares. */
-    @Transactional
-    public Account addHolder(AuthUser requester, String iban, String email) {
-        Account account;
-        try {
-            account = accounts.findByIbanForUpdate(Iban.normalize(iban)).orElseThrow(
-                    () -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "La cuenta no existe"));
-        } catch (PessimisticLockingFailureException e) {
-            throw ApiException.conflict("CUENTA_OCUPADA", "La cuenta está ocupada, inténtalo de nuevo");
-        }
-        if (!holders.existsByAccountIdAndUserId(account.getId(), requester.id())) {
-            throw ApiException.notFound("CUENTA_NO_ENCONTRADA", "La cuenta no existe entre sus cuentas asociadas");
-        }
+    /**
+     * Añade un titular resolviendo su email en ms-auth primero para evitar que el bloqueo
+     * al hacer la consulta ForUpdate quede atascado esperando la respuesta de ms-auth
+     */
+    public Account addHolder(AuthUser holder, String iban, String email) {
         if (email == null || email.isBlank()) {
             throw ApiException.badRequest("EMAIL_NO_VALIDO", "El email del nuevo titular es obligatorio");
         }
@@ -85,15 +78,7 @@ public class AccountService {
         if (candidate.role() != Role.CLIENTE) {
             throw ApiException.badRequest("TITULAR_NO_VALIDO", "Solo se puede añadir como titular a un cliente");
         }
-        if (holders.existsByAccountIdAndUserId(account.getId(), candidate.id())) {
-            throw ApiException.conflict("YA_ES_TITULAR", "Ese cliente ya es titular de la cuenta");
-        }
-        if (holders.countByAccountId(account.getId()) >= MAX_HOLDERS) {
-            throw ApiException.conflict("MAXIMO_TITULARES", "La cuenta ya tiene el máximo de 4 titulares");
-        }
-        holders.save(new AccountHolder(account.getId(), candidate.id()));
-        log.info("Titular {} añadido a la cuenta {}", candidate.id(), account.getIban());
-        return account;
+        return holderAdder.add(holder.id(), iban, candidate.id());
     }
 
     @Transactional(readOnly = true)
