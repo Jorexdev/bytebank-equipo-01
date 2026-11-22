@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import dev.bytebank.accounts.movement.MovementService;
@@ -203,6 +204,45 @@ class AccountControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
         verifyNoInteractions(accountService);
+    }
+
+    // POST /holders: un titular añade a otro cliente por email y ve los titulares en la respuesta
+    @Test
+    void addHolderReturns201WithHolderIds() throws Exception {
+        String iban = Iban.generate(30);
+        when(accountService.addHolder(any(), eq(iban), eq("nuevo@bytebank.test")))
+                .thenReturn(new Account(iban, 1L));
+        when(accountService.holderIds(any())).thenReturn(List.of(1L, 9L));
+
+        mvc.perform(post("/api/accounts/{iban}/holders", iban)
+                        .header("Authorization", tokenCliente)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nuevo@bytebank.test\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.holderIds[0]").value(1))
+                .andExpect(jsonPath("$.holderIds[1]").value(9));
+    }
+
+    // POST /holders: un email no válido responde 400 antes de llamar al servicio
+    @Test
+    void addHolderWithInvalidEmailReturns400() throws Exception {
+        mvc.perform(post("/api/accounts/{iban}/holders", Iban.generate(31))
+                        .header("Authorization", tokenCliente)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"no-es-un-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+        verifyNoInteractions(accountService);
+    }
+
+    // POST /holders: un GESTOR no puede añadir titulares
+    @Test
+    void addHolderAsGestorReturns403() throws Exception {
+        mvc.perform(post("/api/accounts/{iban}/holders", Iban.generate(32))
+                        .header("Authorization", tokenGestor)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nuevo@bytebank.test\"}"))
+                .andExpect(status().isForbidden());
     }
 
 }

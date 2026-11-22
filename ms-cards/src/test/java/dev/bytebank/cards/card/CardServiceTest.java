@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,6 +65,17 @@ class CardServiceTest {
         assertThat(card.getAccountIban()).isEqualTo(IBAN);
         assertThat(card.getUserId()).isEqualTo(2L);
         assertThat(card.getLast4()).matches("\\d{4}");
+    }
+
+    @Test
+    void issueSucceedsForCoHolder() {
+        when(accounts.getAccount(IBAN)).thenReturn(
+                new AccountInfo(IBAN, "ACTIVA", BigDecimal.TEN, 99L, List.of(99L, 2L)));
+
+        Card card = service.issue(IBAN, ANA);
+
+        assertThat(card.getUserId()).isEqualTo(2L);
+        verify(cards).save(any());
     }
 
     @Test

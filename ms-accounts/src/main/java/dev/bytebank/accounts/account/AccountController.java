@@ -1,6 +1,7 @@
 package dev.bytebank.accounts.account;
 
 import dev.bytebank.accounts.account.AccountDtos.AccountResponse;
+import dev.bytebank.accounts.account.AccountDtos.AddHolderRequest;
 import dev.bytebank.accounts.account.AccountDtos.ChangeStatusRequest;
 import dev.bytebank.accounts.account.AccountDtos.DepositRequest;
 import dev.bytebank.accounts.movement.MovementResponse;
@@ -40,17 +41,24 @@ public class AccountController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('CLIENTE')")
     public AccountResponse open() {
-        return AccountResponse.from(accountService.open(CurrentUser.get()));
+        return response(accountService.open(CurrentUser.get()));
     }
 
     @GetMapping
     public List<AccountResponse> listOwn() {
-        return accountService.listOwn(CurrentUser.get()).stream().map(AccountResponse::from).toList();
+        return accountService.listOwn(CurrentUser.get()).stream().map(this::response).toList();
     }
 
     @GetMapping("/{iban}")
     public AccountResponse get(@PathVariable String iban) {
-        return AccountResponse.from(accountService.get(CurrentUser.get(), iban));
+        return response(accountService.get(CurrentUser.get(), iban));
+    }
+
+    @PostMapping("/{iban}/holders")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('CLIENTE')")
+    public AccountResponse addHolder(@PathVariable String iban, @Valid @RequestBody AddHolderRequest request) {
+        return response(accountService.addHolder(CurrentUser.get(), iban, request.email()));
     }
 
     /**
@@ -69,7 +77,7 @@ public class AccountController {
     @PatchMapping("/{iban}/status")
     @PreAuthorize("hasRole('GESTOR')")
     public AccountResponse changeStatus(@PathVariable String iban, @Valid @RequestBody ChangeStatusRequest request) {
-        return AccountResponse.from(accountService.changeStatus(iban, request.status()));
+        return response(accountService.changeStatus(iban, request.status()));
     }
 
     /**
@@ -78,6 +86,10 @@ public class AccountController {
     @PostMapping("/{iban}/deposits")
     @PreAuthorize("hasRole('GESTOR')")
     public AccountResponse deposit(@PathVariable String iban, @Valid @RequestBody DepositRequest request) {
-        return AccountResponse.from(accountService.deposit(iban, request.amount(), request.concept()));
+        return response(accountService.deposit(iban, request.amount(), request.concept()));
+    }
+
+    private AccountResponse response(Account account) {
+        return AccountResponse.from(account, accountService.holderIds(account));
     }
 }

@@ -68,6 +68,17 @@ class TransferServiceTest {
     }
 
     @Test
+    void completesTransferFromAccountWhereUserIsCoHolder() {
+        when(accounts.getAccount(ORIGIN)).thenReturn(
+                new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L, 2L)));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), "Cena"), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+        verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), any(), any());
+    }
+
+    @Test
     void rejectsWhenOriginHasNoFunds() {
         when(accounts.debit(anyString(), eq(ORIGIN), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "FONDOS_INSUFICIENTES", "Saldo insuficiente"));
