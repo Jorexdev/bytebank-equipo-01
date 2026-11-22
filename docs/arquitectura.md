@@ -1,23 +1,51 @@
 # Arquitectura
 
 ```
-                         +-------------+
-   cliente  ---------->  | ms-gateway  |  :8080   (solo /api/**)
-                         +------+------+
-                                |
-      +-----------+-------------+-------------+-------------+
-      |           |             |             |             |
- +----v----+ +----v------+ +----v-------+ +---v------+ +----v-----+
- | ms-auth | |ms-accounts| |ms-transfers| | ms-cards | | ms-fraud |
- |  :8081  | |   :8082   | |   :8083    | |  :8084   | |  :8085   |
- +---------+ +-----^-----+ +-----+------+ +----+-----+ +----------+
-                   |             |             |
-                   +-------------+-------------+
-                     llamadas internas /internal/**
+                                    +-------------+
+cliente  -------------------------->| ms-gateway  |
+                                    +------+------+
+                                           |
+     +--------------+--------------+-------+-------+--------------+---------------+
+     |              |              |               |              |               |
+     v              v              v               v              v               v
++---------+  +-------------+  +----------+  +------------+  +----------+  +----------------+
+| ms-auth |  | ms-accounts |  | ms-cards |  |ms-transfers|  | ms-fraud |  |ms-notifications|
+|  :8081  |  |    :8082    |  |  :8084   |  |   :8083    |  |  :8085   |  |     :8086      |
++---------+  +-------------+  +----------+  +------------+  +----------+  +----------------+
+     ^         |  :  ^  ^           |          |      |           ^               ^
+     +--[4]----+  :  |  +----[3]----+          |      +----[1]----+               :  [6]
+                  :  |                         |                                  :
+                  :  +-------------[2]---------+                        +---------+---------+
+                  +........................[5].........................>|   kafka (KRaft)   |
+                                                                        | bytebank.movements|
+                                                                        +-------------------+
 ```
 
-Cada servicio tiene su propia base de datos (`auth_db`, `accounts_db`, `transfers_db`, `cards_db`, `fraud_db`),
-todas en la misma instancia de PostgreSQL. Ningún servicio lee la base de datos de otro.
+**Simbología**
+
+- `|` y `-`: llamada HTTP.
+- `:` y `.`: evento Kafka.
+- `v`, `^` y `>`: indican el servicio que recibe.
+- Las líneas que bajan del gateway son el tráfico externo (rutas `/api/**`).
+
+**Llamadas `/internal/**`** (cabecera `X-Internal-Key`, no pasan por el gateway)
+
+| N.º | Origen | Destino | Operación |
+|---|---|---|---|
+| [1] | ms-transfers | ms-fraud | `check`: `POST /internal/fraud/check` |
+| [2] | ms-transfers | ms-accounts | `debit/credit`: `GET /internal/accounts/{iban}`, `POST /debit`, `POST /credit` |
+| [3] | ms-cards | ms-accounts | `debit`: `GET /internal/accounts/{iban}`, `POST /debit` |
+| [4] | ms-accounts | ms-auth | `by-email`: `GET /internal/users/by-email` |
+
+**Eventos**
+
+- [5] ms-accounts publica en `bytebank.movements` (Kafka).
+- [6] ms-notifications consume `bytebank.movements` (Kafka).
+
+`ms-fraud` y `ms-notifications` no originan llamadas HTTP internas: solo reciben [1] y [6], respectivamente.
+
+Cada servicio tiene su propia base de datos (`auth_db`, `accounts_db`, `transfers_db`, `cards_db`, `fraud_db`
+y `notifications_db`), todas en la misma instancia de PostgreSQL. Ningún servicio lee la base de datos de otro.
 
 ## Seguridad
 
@@ -34,6 +62,24 @@ Código compartido por los servicios de dominio:
 - `error`: `ApiException` y el formato único de error.
 - `http`: `InternalClients` para llamar a otros servicios con la clave interna.
 - `iban`: validación y generación de IBAN (ByteBank es la entidad 3999).
+
+## Eventos de movimientos
+
+ms-accounts publica un evento por cada movimiento en el topic `bytebank.movements` de Kafka (modo KRaft). Para que
+no se avise de una operación que hizo rollback, el evento se guarda primero en la tabla `outbox`, en la misma
+transacción que el movimiento (patrón *transactional outbox*). `OutboxRelay` lo envía cada 500 ms en lotes de hasta
+100, espera la confirmación de Kafka y borra la fila; si el envío falla, hace rollback y reintenta.
+
+El mensaje lleva el IBAN como clave y solo una réplica vacía la outbox a la vez, de modo que los eventos de una
+misma cuenta llegan en orden. ms-notifications es idempotente por `(user_id, movement_id)`, así que un reenvío no
+duplica los avisos. Ver [docs/contratos/ms-notifications.md](contratos/ms-notifications.md).
+
+## Cuentas con varios titulares
+
+Una cuenta puede tener hasta 4 titulares. `POST /api/accounts/{iban}/holders` añade un titular por email: ms-accounts
+resuelve al usuario en ms-auth antes de adquirir el bloqueo de la cuenta y vuelve a validar la titularidad bajo el
+bloqueo. Las respuestas de cuentas incluyen `holderIds`, y los avisos, las tarjetas y las transferencias tienen en
+cuenta a todos los titulares.
 
 ## Formato de error
 
@@ -80,5 +126,5 @@ Las transferencias a otras entidades solo cargan en origen: la liquidación con 
 
 | Rol | Puede |
 |---|---|
-| CLIENTE | Abrir cuentas, ver las suyas, hacer transferencias desde ellas, gestionar sus tarjetas |
+| CLIENTE | Abrir cuentas, ver las suyas, añadir titulares, hacer transferencias desde ellas, gestionar sus tarjetas y consultar sus avisos |
 | GESTOR | Todo lo de consulta, bloquear y desbloquear cuentas, hacer ingresos en ventanilla, ver las validaciones antifraude, aprobar o rechazar transferencias pendientes |

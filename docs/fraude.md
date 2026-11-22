@@ -13,7 +13,9 @@ de importe alto (más de 5.000 €, configurable en `bytebank.fraud.review-thres
 ms-transfers no tiene umbrales propios. Las `PENDIENTE_REVISION` las resuelve un gestor desde ms-transfers.
 
 Si saltan varias reglas, gana el veredicto más grave. Cada validación queda guardada (tabla `fraud_checks`)
-y los gestores pueden consultarlas en `GET /api/fraud/checks?iban=...`.
+y se puede consultar en `GET /api/fraud/checks?iban=...`, restringido a usuarios `GESTOR` mediante
+`@PreAuthorize("hasRole('GESTOR')")` en `FraudController.java:35` (PR #22). El histórico de este y otros hallazgos
+está en [diagnostico.md](diagnostico.md).
 
 ## Reglas acordadas con negocio
 
@@ -25,7 +27,9 @@ y los gestores pueden consultarlas en `GET /api/fraud/checks?iban=...`.
 | Frecuencia | `FRECUENCIA_ALTA` | Más de 5 transferencias desde la misma cuenta en 10 minutos (se bloquea la sexta) | BLOQUEADA | Hecha |
 
 
-Los umbrales se configuran en `application.yml` (`bytebank.fraud.*`).
+Los umbrales se configuran en `ms-fraud/src/main/resources/application.yml` (`bytebank.fraud.*`):
+`block-threshold` (20000), `external-review-threshold` (1000), `review-threshold` (5000), `max-transfers` (5) y
+`frequency-window` (10m).
 
 ## Contrato
 

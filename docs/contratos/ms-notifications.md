@@ -2,6 +2,8 @@
 
 Avisos al cliente de cada movimiento de sus cuentas: ingresos, transferencias enviadas y recibidas, comisiones y pagos
 con tarjeta. ms-accounts publica un evento en Kafka por cada movimiento y ms-notifications lo convierte en un aviso.
+La consulta de avisos y el consumo de eventos están implementados (KAF-01); el estado general del proyecto está en
+[README.md](../../README.md).
 
 ```
 ms-accounts  --(topic bytebank.movements)-->  ms-notifications  <--  GET /api/notifications (cliente)
@@ -37,6 +39,16 @@ ms-accounts  --(topic bytebank.movements)-->  ms-notifications  <--  GET /api/no
 - Cada movimiento genera un aviso para el titular de la cuenta (para todos los titulares, si tiene varios).
 - Solo se avisa de movimientos que existen: si una operación falla, el cliente no recibe aviso de ella.
 - Un cliente no recibe dos veces el aviso del mismo movimiento.
+
+## Fiabilidad de los eventos
+
+ms-accounts guarda el evento en la tabla `outbox` dentro de la misma transacción que el movimiento, de modo que si la
+operación hace *rollback* no se publica nada (KAF-02). `OutboxRelay` envía los eventos a Kafka en lotes de hasta 100
+cada 500 ms, espera la confirmación del broker y borra la fila; si el envío falla, hace *rollback* y reintenta.
+
+El mensaje lleva el IBAN como clave de partición y solo una réplica vacía la outbox a la vez, así se respeta el orden
+de los eventos de una misma cuenta. Si un lote se reenvía, la restricción `UNIQUE (user_id, movement_id)` evita avisos
+duplicados. El detalle de la solución está en [docs/diagnostico.md](../diagnostico.md).
 
 ## Consultar los avisos
 

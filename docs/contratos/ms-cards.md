@@ -1,6 +1,7 @@
 # Contrato de ms-cards
 
 Tarjetas de débito asociadas a una cuenta. Todas las rutas son para usuarios con rol `CLIENTE` y pasan por el gateway.
+Emisión y pago están implementados (TAR-01); el estado general del proyecto está en [README.md](../../README.md).
 
 ## Emitir tarjeta
 
@@ -61,9 +62,20 @@ Respuesta `201`, tanto si se aprueba como si se rechaza:
 }
 ```
 
-## Ya implementado
+## Endpoints
 
-- `GET /api/cards`: tarjetas del usuario.
-- `GET /api/cards/{id}`: una tarjeta.
-- `PATCH /api/cards/{id}/status` con `{ "status": "BLOQUEADA" | "ACTIVA" }`.
-- `GET /api/cards/{id}/payments`: historial de pagos de la tarjeta.
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `POST` | `/api/cards` | Emitir tarjeta |
+| `GET` | `/api/cards` | Tarjetas del usuario |
+| `GET` | `/api/cards/{id}` | Una tarjeta |
+| `PATCH` | `/api/cards/{id}/status` | Bloquear o desbloquear (`BLOQUEADA` / `ACTIVA`) |
+| `POST` | `/api/cards/{id}/payments` | Pagar con la tarjeta |
+| `GET` | `/api/cards/{id}/payments` | Historial de pagos de la tarjeta |
+
+## Limitación conocida
+
+Si ms-accounts hace *timeout* pero el cargo sí se llegó a aplicar, el pago queda `RECHAZADO` con
+`SERVICIO_NO_DISPONIBLE` (la API devuelve `503`) con el dinero ya cobrado. Se arregla haciendo `reference` único e
+idempotente en ms-accounts y reintentando el cargo con la misma referencia; queda registrado en
+[docs/diagnostico.md](../diagnostico.md).

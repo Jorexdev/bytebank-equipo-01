@@ -20,7 +20,7 @@ Más detalle en [docs/arquitectura.md](docs/arquitectura.md).
 
 ## Stack
 
-Java 17, Spring Boot 3.3, Spring Security con JWT, Spring Data JPA, Flyway, PostgreSQL 15, Spring Cloud Gateway,
+Java 17, Spring Boot 3.3.5, Spring Security con JWT, Spring Data JPA, Flyway, PostgreSQL 15, Spring Cloud Gateway,
 Apache Kafka (modo KRaft), JUnit 5, Mockito, Testcontainers, Docker Compose y GitHub Actions.
 
 ## Arrancar en local
@@ -37,10 +37,10 @@ docker compose up --build
 | `JWT_SECRET` | Clave de firma HS256 de los tokens. | Obligatoria y de al menos 32 bytes (256 bits); Compose no arranca si falta o está vacía. Genera uno con `openssl rand -base64 48`.|
 | `SPRING_PROFILES_ACTIVE` | Perfil de Spring: `demo` crea usuarios y cuentas de prueba; `prod` para despliegues. | Obligatoria: Compose no arranca si falta o está vacía. Usa `demo` solo en desarrollo. |
 
-### Tiempo de expiración (definido en docker-compose)
-- `JWT_EXPIRATION_MINUTES`
-- Contenido: Duración del token en minutos (1440 = 24 h por defecto). 
-- Detalles: No es secreto, se ajusta directamente en `docker-compose.yml`. Para un banco se recomienda reducirlo (p. ej. 15–60 min). |
+### Tiempo de expiración
+
+`JWT_EXPIRATION_MINUTES` se define en `docker-compose.yml` (1440 minutos = 24 h por defecto). No es secreto;
+para un banco se recomienda reducirlo (p. ej. 15–60 min).
 
 La API queda en `http://localhost:8080`. Cada servicio publica su Swagger en
 `http://localhost:<puerto>/swagger-ui.html` (por ejemplo, `http://localhost:8082/swagger-ui.html` para ms-accounts).
@@ -71,20 +71,28 @@ curl -s localhost:8080/api/accounts -H "Authorization: Bearer $TOKEN"
 
 Los tests de integración usan Testcontainers, así que necesitan Docker arrancado.
 
-## Estado del proyecto (junio de 2026)
+## Estado del proyecto (noviembre de 2026)
 
-Notas para quien coja el proyecto:
+Contrastado con `main` (commit `b3a76fb`, que incluye el PR #22 de ajustes de seguridad).
 
-- **ms-cards** está a medias: se pueden listar y bloquear tarjetas, pero emitir y pagar devuelven 501.
-  El contrato acordado está en [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
-- **ms-fraud** ya lo llama ms-transfers en cada transferencia, antes de mover dinero. Un veredicto `REVISAR` (por
-  ejemplo, un importe de más de 5.000 €, que es una regla de ms-fraud) deja la transferencia `PENDIENTE_REVISION`
-  sin cargo ni abono, y un `BLOQUEADA` la guarda como `RECHAZADA` con motivo `FRAUDE`. Un gestor ve la cola en
-  `GET /api/transfers/pending` y resuelve cada una con `POST /api/transfers/{id}/approve` o
-  `POST /api/transfers/{id}/reject`; solo se puede resolver una vez.
+**Ya implementado:**
+
+- **Antifraude conectado**: ms-transfers consulta a ms-fraud antes de mover dinero. Un veredicto `REVISAR` deja la
+  transferencia `PENDIENTE_REVISION` sin cargo ni abono, y un `BLOQUEADA` la guarda como `RECHAZADA` con motivo
+  `FRAUDE`. Un gestor ve la cola en `GET /api/transfers/pending` y resuelve cada una con
+  `POST /api/transfers/{id}/approve` o `POST /api/transfers/{id}/reject`; solo se puede resolver una vez.
   Ver [docs/fraude.md](docs/fraude.md).
-- **ms-notifications** ya recibe los movimientos de Kafka y guarda los avisos, pero falta el endpoint para
-  consultarlos. Contrato en [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
-- Algunos clientes se han quejado del extracto de movimientos. No me ha dado tiempo a mirarlo.
-
-Raúl
+- **Cuentas con varios titulares**: `POST /api/accounts/{iban}/holders` añade titulares por email (máximo 4) y las
+  respuestas de cuentas incluyen `holderIds`. Tarjetas, transferencias y avisos tienen en cuenta a todos los titulares.
+- **Tarjetas**: emitir, pagar, listar, bloquear/desbloquear y consultar el historial de pagos funcionan.
+  Ver [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
+- **Avisos**: `GET /api/notifications` permite consultarlos y ms-accounts publica los movimientos con patrón
+  *outbox*, así que no se avisa de operaciones que hicieron rollback.
+  Ver [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
+- **Extracto**: paginado y con filtro de fechas en la zona horaria de negocio (`Europe/Madrid`).
+- **CI**: `ci.yml` ejecuta `mvn -B verify` y construye las 7 imágenes.
+- **Importes de transferencia validados**: `CreateTransferRequest.amount` exige un valor mayor que 0 y como máximo 2
+  decimales (`@DecimalMin` y `@Digits`), además de la validación ya existente en ms-fraud y en el ledger.
+- **Acceso a las validaciones antifraude restringido**: solo un `GESTOR` puede consultar `GET /api/fraud/checks`.
+- **Perfil `demo` bajo petición**: ya no es el valor por defecto; `SPRING_PROFILES_ACTIVE` es obligatorio y los seeders
+  solo se activan cuando vale `demo`.
