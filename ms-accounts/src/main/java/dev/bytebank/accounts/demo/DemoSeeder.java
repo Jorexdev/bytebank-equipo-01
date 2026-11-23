@@ -2,6 +2,8 @@ package dev.bytebank.accounts.demo;
 
 import dev.bytebank.accounts.account.Account;
 import dev.bytebank.accounts.account.AccountRepository;
+import dev.bytebank.accounts.holder.AccountHolder;
+import dev.bytebank.accounts.holder.AccountHolderRepository;
 import dev.bytebank.accounts.movement.Movement;
 import dev.bytebank.accounts.movement.MovementRepository;
 import dev.bytebank.accounts.movement.MovementType;
@@ -31,10 +33,12 @@ public class DemoSeeder implements ApplicationRunner {
 
     private final AccountRepository accounts;
     private final MovementRepository movements;
+    private final AccountHolderRepository holders;
 
-    public DemoSeeder(AccountRepository accounts, MovementRepository movements) {
+    public DemoSeeder(AccountRepository accounts, MovementRepository movements, AccountHolderRepository holders) {
         this.accounts = accounts;
         this.movements = movements;
+        this.holders = holders;
     }
 
     @Override
@@ -51,6 +55,7 @@ public class DemoSeeder implements ApplicationRunner {
 
     private void open(long ownerId, BigDecimal initialBalance) {
         Account account = accounts.save(new Account(Iban.generate(accounts.nextAccountNumber()), ownerId));
+        holders.save(new AccountHolder(account.getId(), ownerId));
         account.credit(initialBalance);
         movements.save(new Movement(account, MovementType.INGRESO, initialBalance, "Saldo inicial", null));
     }
