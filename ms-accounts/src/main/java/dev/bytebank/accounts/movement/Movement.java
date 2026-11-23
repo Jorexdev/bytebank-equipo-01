@@ -66,6 +66,10 @@ public class Movement {
         return id;
     }
 
+    public Account getAccount() {
+        return account;
+    }
+
     public MovementType getType() {
         return type;
     }

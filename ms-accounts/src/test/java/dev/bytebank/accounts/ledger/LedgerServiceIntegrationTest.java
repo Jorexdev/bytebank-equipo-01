@@ -106,6 +106,90 @@ class LedgerServiceIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void repeatingTheSameOperationDoesNotApplyItTwice() {
+        var request = new MovementRequest("TRF-DUP", iban, new BigDecimal("30.00"), MovementType.TRANSFERENCIA_EMITIDA, null);
+
+        var first = ledger.debit(request);
+        var second = ledger.debit(request);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("70");
+        assertThat(jdbc.queryForObject("select count(*) from movements where reference = 'TRF-DUP'", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from outbox", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void sameReferenceWithDifferentTypeIsAnotherOperation() {
+        ledger.debit(new MovementRequest("TRF-9", iban, new BigDecimal("30.00"), MovementType.TRANSFERENCIA_EMITIDA, null));
+        ledger.credit(new MovementRequest("TRF-9", iban, new BigDecimal("30.00"), MovementType.TRANSFERENCIA_RECIBIDA, null));
+
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("100");
+        assertThat(jdbc.queryForObject("select count(*) from movements where reference = 'TRF-9'", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void sameReferenceWithADifferentAmountIsRejected() {
+        ledger.debit(new MovementRequest("TRF-AMT", iban, new BigDecimal("30.00"), MovementType.TRANSFERENCIA_EMITIDA, null));
+
+        assertThatThrownBy(() -> ledger.debit(
+                new MovementRequest("TRF-AMT", iban, new BigDecimal("40.00"), MovementType.TRANSFERENCIA_EMITIDA, null)))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getCode()).isEqualTo("REFERENCIA_REUTILIZADA"));
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("70");
+    }
+
+    @Test
+    void sameReferenceOnAnotherAccountIsRejected() {
+        String other = accounts.save(new Account(Iban.generate(accounts.nextAccountNumber()), 2L)).getIban();
+        ledger.credit(new MovementRequest("TRF-ACC", iban, new BigDecimal("10.00"), MovementType.TRANSFERENCIA_RECIBIDA, null));
+
+        assertThatThrownBy(() -> ledger.credit(
+                new MovementRequest("TRF-ACC", other, new BigDecimal("10.00"), MovementType.TRANSFERENCIA_RECIBIDA, null)))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getCode()).isEqualTo("REFERENCIA_REUTILIZADA");
+                    assertThat(e.getStatus().value()).isEqualTo(409);
+                });
+        assertThat(accounts.findByIban(other).orElseThrow().getBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void concurrentRepeatsOfTheSameOperationApplyItOnce() throws Exception {
+        var request = new MovementRequest("TRF-RACE", iban, new BigDecimal("10.00"), MovementType.TRANSFERENCIA_RECIBIDA, null);
+        int threads = 4;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<LedgerDtos.LedgerResult>> results = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            results.add(pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                return ledger.credit(request);
+            }));
+        }
+        ready.await();
+        start.countDown();
+        for (var f : results) {
+            assertThat(f.get(10, TimeUnit.SECONDS).balanceAfter()).isEqualByComparingTo("110");
+        }
+        pool.shutdown();
+
+        assertThat(accounts.findByIban(iban).orElseThrow().getBalance()).isEqualByComparingTo("110");
+        assertThat(jdbc.queryForObject("select count(*) from movements where reference = 'TRF-RACE'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void repeatedOperationStillSucceedsAfterTheAccountIsBlocked() {
+        var request = new MovementRequest("TRF-BLK", iban, new BigDecimal("10.00"), MovementType.TRANSFERENCIA_RECIBIDA, null);
+        ledger.credit(request);
+        Account account = accounts.findByIban(iban).orElseThrow();
+        account.changeStatus(AccountStatus.BLOQUEADA);
+        accounts.save(account);
+
+        // Un reintento tras un timeout debe recibir el resultado original, no un error de cuenta bloqueada.
+        assertThat(ledger.credit(request).balanceAfter()).isEqualByComparingTo("110");
+    }
+
+    @Test
     void concurrentDebitsNeverLeaveNegativeBalance() throws Exception {
         int threads = 4;
         ExecutorService pool = Executors.newFixedThreadPool(threads);
