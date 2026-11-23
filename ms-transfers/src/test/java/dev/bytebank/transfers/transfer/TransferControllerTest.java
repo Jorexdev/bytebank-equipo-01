@@ -125,6 +125,17 @@ class TransferControllerTest {
     }
 
     @Test
+    void negativeAmountIs400() throws Exception {
+        send(post("/api/transfers"), tokenCliente,
+                "{\"originIban\":\"ES0000000000000000000001\","
+                        + "\"destinationIban\":\"ES0000000000000000000002\",\"amount\":-50}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"))
+                .andExpect(jsonPath("$.fields.amount").exists());
+        verifyNoInteractions(transferService);
+    }
+
+    @Test
     void withoutTokenIs401() throws Exception {
         mvc.perform(get("/api/transfers/pending")).andExpect(status().isUnauthorized());
         verifyNoInteractions(transferService);
