@@ -265,8 +265,7 @@ class TransferServiceTest {
 
     @Test
     void approveExecutesThePendingTransferOnce() {
-        Transfer pending = pendingTransfer(new BigDecimal("6000.00"));
-        when(transfers.findByIdForUpdate(7L)).thenReturn(Optional.of(pending));
+        Transfer pending = claimablePending(new BigDecimal("6000.00"));
 
         Transfer resolved = service.approve(7L, GESTOR);
 
@@ -277,8 +276,7 @@ class TransferServiceTest {
 
     @Test
     void approveRejectsTheTransferWhenTheLedgerHasNoFunds() {
-        Transfer pending = pendingTransfer(new BigDecimal("6000.00"));
-        when(transfers.findByIdForUpdate(7L)).thenReturn(Optional.of(pending));
+        claimablePending(new BigDecimal("6000.00"));
         when(accounts.debit(anyString(), eq(ORIGIN), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "FONDOS_INSUFICIENTES", "Saldo insuficiente"));
 
@@ -288,6 +286,64 @@ class TransferServiceTest {
         assertThat(resolved.getRejectionReason()).isEqualTo("FONDOS_INSUFICIENTES");
         verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), any(), any());
         verify(accounts, never()).credit(any(), any(), any(), any());
+    }
+
+    @Test
+    void approveRefundsTheOriginWhenTheCreditFails() {
+        claimablePending(new BigDecimal("6000.00"));
+        when(accounts.credit(anyString(), eq(DESTINATION), any(), any())).thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
+
+        Transfer resolved = service.approve(7L, GESTOR);
+
+        assertThat(resolved.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(resolved.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        verify(accounts).credit(endsWith("-REV"), eq(ORIGIN), eq(new BigDecimal("6000.00")), any());
+    }
+
+    @Test
+    void failedRefundIsMarkedSoItCanBeReconciled() {
+        claimablePending(new BigDecimal("6000.00"));
+        when(accounts.credit(anyString(), eq(DESTINATION), any(), any())).thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
+        when(accounts.credit(endsWith("-REV"), eq(ORIGIN), any(), any())).thenThrow(new RemoteUnavailableException("caído"));
+
+        Transfer resolved = service.approve(7L, GESTOR);
+
+        assertThat(resolved.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(resolved.getRejectionReason()).isEqualTo("REEMBOLSO_FALLIDO");
+    }
+
+    @Test
+    void creditThatKeepsTimingOutIsNotRefundedBecauseItMayHaveBeenApplied() {
+        claimablePending(new BigDecimal("6000.00"));
+        when(accounts.credit(anyString(), eq(DESTINATION), any(), any())).thenThrow(new RemoteUnavailableException("timeout"));
+
+        Transfer resolved = service.approve(7L, GESTOR);
+
+        assertThat(resolved.getRejectionReason()).isEqualTo("REEMBOLSO_FALLIDO");
+        // Solo los 3 intentos del abono con la misma referencia: ninguna llamada de devolución (-REV).
+        verify(accounts, times(3)).credit(anyString(), eq(DESTINATION), any(), any());
+        verify(accounts, never()).credit(endsWith("-REV"), any(), any(), any());
+    }
+
+    @Test
+    void creditFailureOnImmediateTransferAlsoRefundsTheOrigin() {
+        when(accounts.credit(anyString(), eq(DESTINATION), any(), any())).thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
+
+        service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        verify(accounts).credit(endsWith("-REV"), eq(ORIGIN), eq(new BigDecimal("50.00")), any());
+    }
+
+    @Test
+    void approveRejectsWithoutDebitWhenTheDestinationIsNoLongerActive() {
+        claimablePending(new BigDecimal("6000.00"));
+        when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountInfo(DESTINATION, "BLOQUEADA", new BigDecimal("100.00"), 7L));
+
+        Transfer resolved = service.approve(7L, GESTOR);
+
+        assertThat(resolved.getRejectionReason()).isEqualTo("CUENTA_DESTINO_INACTIVA");
+        verify(accounts, never()).debit(any(), any(), any(), any());
     }
 
     @Test
@@ -316,6 +372,8 @@ class TransferServiceTest {
     @Test
     void resolvingATransferThatIsNotPendingConflicts() {
         Transfer done = new Transfer(ORIGIN, DESTINATION, new BigDecimal("100.00"), null, ANA.id());
+        when(transfers.claimPending(7L)).thenReturn(0);
+        when(transfers.existsById(7L)).thenReturn(true);
         when(transfers.findByIdForUpdate(7L)).thenReturn(Optional.of(done));
 
         assertThatThrownBy(() -> service.approve(7L, GESTOR))
@@ -331,7 +389,8 @@ class TransferServiceTest {
 
     @Test
     void approveUnknownTransferIsNotFound() {
-        when(transfers.findByIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(transfers.claimPending(7L)).thenReturn(0);
+        when(transfers.existsById(7L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.approve(7L, GESTOR))
                 .isInstanceOfSatisfying(ApiException.class, e -> {
@@ -388,6 +447,14 @@ class TransferServiceTest {
         assertThatThrownBy(() -> service.get(5L, ANA))
                 .isInstanceOfSatisfying(ApiException.class,
                         e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    /** Una pendiente que el claim atómico concede a este gestor. */
+    private Transfer claimablePending(BigDecimal amount) {
+        Transfer pending = pendingTransfer(amount);
+        when(transfers.claimPending(7L)).thenReturn(1);
+        when(transfers.findById(7L)).thenReturn(Optional.of(pending));
+        return pending;
     }
 
     private Transfer pendingTransfer(BigDecimal amount) {
