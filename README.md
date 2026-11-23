@@ -96,3 +96,22 @@ Contrastado con `main` (commit `b3a76fb`, que incluye el PR #22 de ajustes de se
 - **Acceso a las validaciones antifraude restringido**: solo un `GESTOR` puede consultar `GET /api/fraud/checks`.
 - **Perfil `demo` bajo petición**: ya no es el valor por defecto; `SPRING_PROFILES_ACTIVE` es obligatorio y los seeders
   solo se activan cuando vale `demo`.
+- **Datos demo con titular**: `DemoSeeder` guarda el `AccountHolder`, así que con una base de datos nueva `ana` y `luis`
+  ven sus cuentas en `GET /api/accounts`.
+- **Cargos y abonos idempotentes**: ms-accounts ignora una referencia repetida (único `(reference, type)`, migración
+  `V7`), de modo que un reintento no mueve el dinero dos veces. Si la referencia ya se usó con otra cuenta o importe
+  responde `409 REFERENCIA_REUTILIZADA`.
+- **Reintentos ante timeout**: ms-transfers repite hasta 3 veces el cargo y el abono con la misma referencia si
+  ms-accounts no responde.
+- **Devolución si falla el abono**: ms-transfers devuelve el cargo al origen. Si ni así hay respuesta, la transferencia
+  queda `RECHAZADA` con motivo `REEMBOLSO_FALLIDO` y se registra un `log.error` para conciliarla a mano.
+- **Aprobación sin transacción abierta durante llamadas HTTP**: `approve` pasa la transferencia por el estado
+  `EN_PROCESO` y comprueba que la cuenta de destino sigue activa antes de mover el dinero.
+- **Migración V2 de ms-notifications**: borra los avisos duplicados antes de crear la restricción única, para que no
+  falle en una base de datos que ya los tenga.
+- **Tests**: validación de importes negativos en `TransferController`, concurrencia de aprobaciones, idempotencia del
+  ledger y reintentos/devolución en `TransferService`.
+
+**Pendiente (principales riesgos abiertos):** conciliar los cargos o abonos sin respuesta tras los 3 reintentos,
+reintentos en ms-cards, un tipo de movimiento `DEVOLUCION` y tests automáticos de migraciones.
+El detalle completo está en [docs/diagnostico.md](docs/diagnostico.md).
