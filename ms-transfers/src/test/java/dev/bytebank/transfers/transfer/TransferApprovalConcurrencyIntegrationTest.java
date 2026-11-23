@@ -28,10 +28,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Contra Postgres real: dos gestores aprobando a la vez la misma transferencia pendiente.
- * El bloqueo pesimista de {@code findByIdForUpdate} debe hacer que solo uno mueva el dinero;
+ * El paso atómico a EN_PROCESO ({@code claimPending}) debe hacer que solo uno mueva el dinero;
  * el otro tiene que recibir 409 TRANSFERENCIA_YA_RESUELTA.
  */
 class TransferApprovalConcurrencyIntegrationTest extends IntegrationTest {
@@ -54,6 +55,8 @@ class TransferApprovalConcurrencyIntegrationTest extends IntegrationTest {
     @BeforeEach
     void setUp() {
         transfers.deleteAll();
+        when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountsClient.AccountInfo(DESTINATION, "ACTIVA", new BigDecimal("0.00"), 7L));
     }
 
     @Test

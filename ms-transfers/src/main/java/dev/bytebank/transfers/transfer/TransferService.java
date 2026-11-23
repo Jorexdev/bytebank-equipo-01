@@ -27,6 +27,7 @@ public class TransferService {
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
     private static final String DEFAULT_REJECTION_REASON = "RECHAZADA_POR_GESTOR";
     private static final int MAX_ATTEMPTS = 3;
+    private static final String REFUND_FAILED = "REEMBOLSO_FALLIDO";
 
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
@@ -75,8 +76,6 @@ public class TransferService {
             return transfers.save(transfer);
         }
 
-        // TODO(KAF-02/BUG-06): cuando la transferencia sea atómica (cargo y abono en una sola transacción de ms-accounts),
-        //  comprobar que si el abono falla se revierte el cargo y no queda aviso (outbox) de un movimiento que no existe.
         Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
         return execute(transfer);
     }
@@ -101,10 +100,21 @@ public class TransferService {
         return PageResponse.of(result, TransferResponse::from);
     }
 
-    @Transactional
     public Transfer approve(Long id, AuthUser user) {
         requireGestor(user);
-        return execute(lockPending(id));
+        if (transfers.claimPending(id) == 0) {
+            throw transfers.existsById(id)
+                    ? ApiException.conflict("TRANSFERENCIA_YA_RESUELTA", "La transferencia " + id + " ya está resuelta")
+                    : ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA", "No existe la transferencia " + id);
+        }
+        Transfer transfer = transfers.findById(id).orElseThrow();
+
+        if (Iban.isOwnBank(transfer.getDestinationIban()) && !accountsClient.getAccount(transfer.getDestinationIban()).isActive()) {
+            transfer.reject("CUENTA_DESTINO_INACTIVA");
+            return transfers.save(transfer);
+        }
+
+        return execute(transfer);
     }
 
     @Transactional
@@ -136,7 +146,7 @@ public class TransferService {
                         transfer.getAmount(), transfer.getConcept()));
             } catch (ApiException e) {
                 log.warn("No se pudo abonar la transferencia {} en {}: {}", transfer.getId(), transfer.getDestinationIban(), e.getCode());
-                transfer.reject(e.getCode());
+                transfer.reject(refundOrigin(transfer, e) ? e.getCode() : REFUND_FAILED);
                 return transfers.save(transfer);
             }
         }
@@ -160,6 +170,28 @@ public class TransferService {
                 }
                 log.warn("ms-accounts no respondió (intento {}/{}), se repite con la misma referencia", attempt, MAX_ATTEMPTS);
             }
+        }
+    }
+
+    /**
+     * Devuelve el cargo a la cuenta de origen con otra referencia (la original ya es la del cargo).
+     * Un abono que sigue sin responder tras los reintentos no se devuelve: no se sabe si se aplicó y se pagaría dos veces.
+     * shortcut: queda para conciliar a mano (log.error + REEMBOLSO_FALLIDO); automatizarlo con una tarea que revise el estado.
+     */
+    private boolean refundOrigin(Transfer transfer, ApiException creditFailure) {
+        if (creditFailure instanceof RemoteUnavailableException) {
+            log.error("Transferencia {}: el abono no respondió tras {} intentos y el cargo en {} NO se ha devuelto; conciliar a mano",
+                    transfer.getId(), MAX_ATTEMPTS, transfer.getOriginIban());
+            return false;
+        }
+        try {
+            retryIfUnavailable(() -> accountsClient.credit(transfer.ledgerReference() + "-REV", transfer.getOriginIban(),
+                    transfer.getAmount(), "Devolución de la transferencia " + transfer.getId()));
+            return true;
+        } catch (ApiException e) {
+            log.error("Transferencia {}: no se pudo devolver el cargo en {} ({}); conciliar a mano",
+                    transfer.getId(), transfer.getOriginIban(), e.getCode());
+            return false;
         }
     }
 
