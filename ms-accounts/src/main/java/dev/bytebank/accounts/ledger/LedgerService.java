@@ -16,7 +16,9 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Cargos y abonos en cuenta. Cada operación es transaccional. */
+import java.util.Optional;
+
+/** Cargos y abonos en cuenta. Cada operación es transaccional e idempotente por (referencia, tipo). */
 @Service
 public class LedgerService {
 
@@ -35,6 +37,10 @@ public class LedgerService {
     @Transactional
     public LedgerResult debit(MovementRequest request) {
         Account account = findForUpdate(request.iban());
+        var applied = alreadyApplied(request, account);
+        if (applied.isPresent()) {
+            return applied.get();
+        }
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
@@ -53,6 +59,10 @@ public class LedgerService {
     @Transactional
     public LedgerResult credit(MovementRequest request) {
         Account account = findForUpdate(request.iban());
+        var applied = alreadyApplied(request, account);
+        if (applied.isPresent()) {
+            return applied.get();
+        }
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta " + account.getIban() + " no está activa");
         }
@@ -63,6 +73,22 @@ public class LedgerService {
         publisher.publish(movement, account);
         log.info("Abono {} de {} en {}", request.reference(), request.amount(), account.getIban());
         return new LedgerResult(request.reference(), account.getBalance());
+    }
+
+    /**
+     * Idempotencia: si esta operación (referencia + tipo) ya se aplicó, devuelve el resultado de entonces sin tocar el
+     * saldo. Se consulta con la cuenta bloqueada, así dos peticiones iguales a la vez se serializan.
+     */
+    private Optional<LedgerResult> alreadyApplied(MovementRequest request, Account account) {
+        return movements.findByReferenceAndType(request.reference(), request.type()).map(m -> {
+            // Misma referencia pero otra cuenta u otro importe: no es un reintento, es una referencia mal usada.
+            if (!m.getAccount().getId().equals(account.getId()) || m.getAmount().abs().compareTo(request.amount()) != 0) {
+                throw ApiException.conflict("REFERENCIA_REUTILIZADA",
+                        "La referencia " + request.reference() + " ya se usó en otra operación distinta");
+            }
+            log.info("Operación {} ya aplicada en {}, no se repite", request.reference(), account.getIban());
+            return new LedgerResult(m.getReference(), m.getBalanceAfter());
+        });
     }
 
     private Account findForUpdate(String iban) {

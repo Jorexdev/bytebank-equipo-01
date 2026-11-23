@@ -6,8 +6,12 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 public interface MovementRepository extends JpaRepository<Movement, Long> {
+
+    /** El movimiento ya aplicado para esa operación, si lo hay (referencia + tipo, únicos en toda la tabla). */
+    Optional<Movement> findByReferenceAndType(String reference, MovementType type);
 
     /** Una página del extracto, del más reciente al más antiguo. */
     @Query(value = """
