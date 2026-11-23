@@ -313,14 +313,16 @@ class TransferServiceTest {
     }
 
     @Test
-    void creditTimeoutIsNotRefundedBecauseItMayHaveBeenApplied() {
+    void creditThatKeepsTimingOutIsNotRefundedBecauseItMayHaveBeenApplied() {
         claimablePending(new BigDecimal("6000.00"));
         when(accounts.credit(anyString(), eq(DESTINATION), any(), any())).thenThrow(new RemoteUnavailableException("timeout"));
 
         Transfer resolved = service.approve(7L, GESTOR);
 
         assertThat(resolved.getRejectionReason()).isEqualTo("REEMBOLSO_FALLIDO");
-        verify(accounts, times(1)).credit(anyString(), any(), any(), any());
+        // Solo los 3 intentos del abono con la misma referencia: ninguna llamada de devolución (-REV).
+        verify(accounts, times(3)).credit(anyString(), eq(DESTINATION), any(), any());
+        verify(accounts, never()).credit(endsWith("-REV"), any(), any(), any());
     }
 
     @Test
