@@ -1,9 +1,9 @@
 # Diagnóstico de ByteBank
 
-## Estado actual (22 nov 2026)
+## Estado actual (23 nov 2026)
 
 Las secciones "Fallo 1", "Fallo 2", "Fallo 3" y "Fallo 4" de más abajo son el diario histórico de cómo se resolvieron
-cuatro problemas. El estado contrastado con el código hoy es el siguiente. Referencia: `main` (`b3a76fb`, PR #22).
+cuatro problemas. El estado contrastado con el código hoy es el siguiente. Referencia: `main` (`330be1c`, PR #24).
 
 ### Resuelto
 
@@ -19,7 +19,70 @@ cuatro problemas. El estado contrastado con el código hoy es el siguiente. Refe
 | Cuentas con varios titulares | `V6__account_holders.sql`; las respuestas incluyen `holderIds` |
 | Importe de transferencias sin validar en ms-transfers (BUG-01) | `TransferDtos.java:20` con `@DecimalMin("0.01")` y `@Digits(17,2)`; `@Valid` en `TransferController.java:33` |
 | `/api/fraud/checks` accesible por clientes | `FraudController.java:35` con `@PreAuthorize("hasRole('GESTOR')")`; `/internal/fraud/check` no se tocó |
+| Datos demo sin titular tras CAM-01: `ana` y `luis` veían `GET /api/accounts` vacío con una BD nueva | `DemoSeeder.java:58` guarda el `AccountHolder`; comprobado con `docker compose down -v` y `up` (ana ve 2 cuentas, luis 1) |
 | Perfil `demo` activo por defecto | `docker-compose.yml:16` usa `${SPRING_PROFILES_ACTIVE:?...}` y `.env.example:8` lo deja vacío; los seeders siguen con `@Profile("demo")` |
+
+### En revisión (PR abiertas, todavía no en `main`)
+
+Se mergean en este orden, porque cada una depende de la anterior.
+
+| PR | Qué arregla | Depende de |
+|---|---|---|
+| #26 | `V2` de ms-notifications falla en una BD con avisos duplicados: borra los duplicados antes de crear la restricción única | Nada |
+| #27 | ms-accounts ignora una referencia repetida (único `(reference, type)`, V7): un reintento ya no mueve el dinero dos veces; responde `409 REFERENCIA_REUTILIZADA` si la referencia se usó con otra cuenta o importe | Nada |
+| #28 | ms-transfers repite hasta 3 veces el cargo y el abono ante un timeout, con la misma referencia | #27 |
+| #29 | Devuelve el cargo si falla el abono; `approve` deja de llamar por HTTP dentro de una transacción (estado `EN_PROCESO` + `claimPending`) y comprueba que el destino sigue activo | #27 y #28 |
+
+### Pendientes y riesgos
+
+#### Abiertos (de más a menos grave)
+
+Los números 1 a 5 dejan dinero en un estado dudoso si ocurren; los demás son operativos. Todo está contrastado con el código,
+salvo lo que se indica como no reproducido.
+
+| # | Riesgo | Qué pasa | Cómo se cierra |
+|---|---|---|---|
+| 1 | Abono sin respuesta tras los 3 reintentos | El origen queda cargado y no se devuelve, porque no se sabe si el abono se aplicó. La transferencia queda `RECHAZADA` con `REEMBOLSO_FALLIDO` y un `log.error`. Antes de la #29 el cargo tampoco se devolvía en ningún caso | Conciliar a mano con el `log.error`; a medio plazo, una tarea que consulte el movimiento por referencia en ms-accounts y complete o devuelva |
+| 2 | Transferencia guardada como `COMPLETADA` antes de mover el dinero | El constructor de `Transfer` la crea `COMPLETADA` y `TransferService.create` la guarda antes de `execute` (`TransferService.java:77`). Si el proceso muere o falla algo que no sea `ApiException` entre el guardado y el cargo, queda `COMPLETADA` sin cargo. No reproducido | Crearla `EN_PROCESO` (el estado que añade la #29) y marcarla `COMPLETADA` al terminar |
+| 3 | Cargo sin respuesta tras los 3 reintentos | La transferencia queda `RECHAZADA` con `SERVICIO_NO_DISPONIBLE` aunque el cargo pudiera haberse aplicado. Mucho menos probable con la #27 y la #28, pero no imposible | Misma tarea de conciliación que el punto 1 |
+| 4 | `EN_PROCESO` huérfana (#29) | Si ms-transfers se cae entre pasar a `EN_PROCESO` y guardar el resultado, la transferencia se queda así y nadie puede aprobarla ni rechazarla. Antes lo deshacía el rollback | `transfers` no guarda cuándo pasó a `EN_PROCESO` (solo `created_at`, y una pendiente puede ser antigua), así que no se detectan de forma fiable. Añadir una columna de fecha de última actualización y una consulta o tarea que avise |
+| 5 | ms-cards no reintenta su cargo | Un timeout deja el pago `RECHAZADO` con el dinero ya cobrado (ver "Limitación conocida" del Fallo 3). Con la #27 ya se puede reintentar con `CARD-<id>` | PR aparte en ms-cards, igual que la #28 |
+| 6 | Mismo `(reference, type)` en dos cuentas a la vez | Las dos peticiones no se serializan (cada una bloquea su cuenta); la restricción única rechaza la segunda con un error de BD en vez de un 409. Es un uso incorrecto de la API, no un reintento | Capturar `DataIntegrityViolationException` en `LedgerService` y devolver `REFERENCIA_REUTILIZADA` |
+| 7 | Devolución registrada como `TRANSFERENCIA_RECIBIDA` | No existe un tipo de movimiento de reembolso; el concepto dice "Devolución de la transferencia N", pero el tipo es el de un abono recibido | Añadir un tipo `DEVOLUCION` a `MovementType` y usarlo en `refundOrigin` |
+| 8 | Migraciones sin test automático | La V2 de la #26 se verificó a mano con `psql`. Editar una migración ya aplicada cambia su checksum: quien tenga V2 aplicada debe hacer `docker compose down -v` | Test de migración con Testcontainers; no editar migraciones aplicadas en entornos compartidos (usar una nueva) |
+| 9 | #27, #28 y #29 sin probar juntas | Los tests de ms-transfers usan mocks de ms-accounts, salvo el de concurrencia. La #27 se probó con `docker compose` por separado | Probar las tres con `docker compose` cuando estén en `main`: transferencia con abono a una cuenta bloqueada y con ms-accounts parado |
+| 10 | Avisos limitados a un relay | Solo una réplica de ms-accounts vacía la outbox a la vez (unos 200 eventos por segundo). Anotado con `shortcut:` en `OutboxRelay` | Repartir por IBAN (un bloqueo por cubo `hash(iban) % N`) si el volumen lo pide |
+| 11 | `main` sin protección | Nada obliga a pasar por PR ni a que la revise otra persona; el CI no es obligatorio | Pedir al admin del repo: PR con 1 aprobación, check `mvn -B verify` obligatorio y sin push directo |
+
+#### Ya resueltos (de más a menos grave)
+
+Riesgos que el equipo ya cerró en PR mergeadas. La columna "PR" es la que los cerró; el código que lo demuestra de los más
+recientes está en la tabla "Resuelto" de arriba. Esta lista sale del historial de PR y de los mensajes de commit; no se ha
+vuelto a ejecutar cada caso.
+
+| Riesgo | Qué pasaba | Cómo se resolvió | PR |
+|---|---|---|---|
+| Acceso a cuentas ajenas | Un cliente podía consultar y operar cuentas que no eran suyas | Solo se accede a cuentas propias; el gestor puede operar sobre cualquiera. Tests de acceso por rol y 404 | #7 (SEG-01) |
+| Secreto JWT en el código y contraseñas en logs | El secreto estaba escrito en el repositorio y las contraseñas se registraban | Se quita el secreto JWT escrito en el código, se centraliza la clave, no se loguean contraseñas y la documentación no lleva secretos | #15 (SEG-02) |
+| Transferencias sin comprobar la cuenta de origen ni el antifraude | Se podía transferir desde una cuenta ajena y sin consultar a ms-fraud | Se valida que el origen pertenece al usuario y se consulta el antifraude antes de mover dinero | #6 (BUG-01) |
+| Saldo negativo por operaciones simultáneas | Dos cargos a la vez podían dejar el saldo por debajo de cero | Bloqueo pesimista en cargos y abonos, con `lock_timeout` y error 409 si no se consigue el bloqueo | #8 (CON-01) |
+| Importes en `double` | `0,10 + 0,20` daba `0,30000000000000004` | Saldos y movimientos pasan a `NUMERIC(19,2)` / `BigDecimal` (`V4__balances_numeric.sql`) | #11 (BUG-05) |
+| Avisos de movimientos que no existen | Se publicaba en Kafka dentro de la transacción: un rollback dejaba un aviso falso | Patrón *outbox* con relay y bloqueo advisory (Fallo 2). Se revirtió una vez (#17) y se reaplicó corregido | #12, #17, #18 (KAF-02) |
+| Un abono a una cuenta inactiva cargaba el origen | Se debitaba el importe aunque el destino no estuviera activa | Se comprueba que el destino esté activo antes de cargar | #19 (BUG-06) |
+| Transferencias grandes sin revisión y aprobaciones simultáneas | Una transferencia grande se ejecutaba sin que nadie la revisara; dos gestores podían aprobarla a la vez | Las grandes quedan pendientes hasta que un gestor las revise, con test de dos aprobaciones simultáneas que mueven el dinero una sola vez | #20 (CAM-02) |
+| Antifraude incompleto | Sin regla de frecuencia, sin revisión ni bloqueo en ms-transfers | Regla `FRECUENCIA_ALTA` con test de concurrencia (umbral y ventana configurables); `REVISAR` deja la transferencia pendiente y `BLOQUEADA` la rechaza; se bloquean las de exactamente 20.000 € | #14 (FRA-02), #16 (FRA-01) |
+| Condición de carrera al añadir titulares | La comprobación del email bloqueaba la cuenta durante una llamada HTTP | El email se resuelve fuera de la transacción; test concurrente que demuestra que nunca hay más de 4 titulares | #21 (CAM-01) |
+| Importe negativo o con decimales de más en transferencias | `-50` pasaba la validación de la API y el rechazo llegaba tarde y sin detalle del campo | `@DecimalMin("0.01")` y `@Digits(17,2)` en `CreateTransferRequest`; test `negativeAmountIs400` | #22 (SEG-03), #25 |
+| Datos de demo sin titular | Con una BD nueva, ana y luis veían `GET /api/accounts` vacío | `DemoSeeder` guarda el `AccountHolder`; probado con `docker compose down -v` | #24 |
+| Perfil `demo` y `/api/fraud/checks` | `demo` activo por defecto; los clientes podían ver las validaciones antifraude | `SPRING_PROFILES_ACTIVE` obligatorio y vacío en `.env.example`; `/api/fraud/checks` solo para gestores | #22 (SEG-03) |
+| Extracto de movimientos incorrecto | Faltaba el día `to`, el filtro por fechas fallaba y se perdían movimientos al paginar | Se incluye el día `to`, se arregla el filtro y la paginación | #2, #9 (BUG-04), #10 (BUG-03) |
+| Avisos duplicados y sin consulta | ms-notifications guardaba el mismo aviso varias veces y no tenía endpoint | `UNIQUE (user_id, movement_id)` con comprobación previa, y `GET /api/notifications` | #3 (KAF-01, KAF-03) |
+| Tarjetas sin implementar | Emitir y pagar devolvían 501 | `CardService.issue` y `pay`; el límite diario solo cuenta los pagos aprobados | #13 (TAR-01) |
+| IBAN que no existe sin controlar | Consultar un IBAN inexistente no tenía un error controlado | Control de error por IBAN no existente (`CUENTA_NO_ENCONTRADA`) | #4 (BUG-02) |
+| CI que no probaba nada | El workflow no ejecutaba los tests, usaba un Testcontainers antiguo y una migración referenciaba un campo inexistente | El workflow lanza los tests, build de las 7 imágenes, migración y versión corregidas, ahora con `mvn -B verify` | #2 |
+| Login con 500 por el puerto de `AUTH_URL` | El gateway llamaba a ms-auth en el 8018 en vez del 8081 | Corregido en `docker-compose.yml` (ver Fallo 1) | Sin PR propia identificada |
+
+No aparecen aquí las PR de solo documentación (#1, #23) ni la #5, que se cerró sin mergear y quedó sustituida por la #6.
 
 ---
 
