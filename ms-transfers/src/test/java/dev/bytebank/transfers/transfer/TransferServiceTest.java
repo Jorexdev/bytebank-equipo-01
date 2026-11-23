@@ -95,6 +95,55 @@ class TransferServiceTest {
     }
 
     @Test
+    void debitTimeoutIsRetriedWithTheSameReference() {
+        when(accounts.debit(anyString(), eq(ORIGIN), any(), any()))
+                .thenThrow(new RemoteUnavailableException("timeout"))
+                .thenReturn(null);
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+        var ref = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(accounts, times(2)).debit(ref.capture(), eq(ORIGIN), any(), any());
+        assertThat(ref.getAllValues().get(0)).isEqualTo(ref.getAllValues().get(1));
+    }
+
+    @Test
+    void creditTimeoutIsRetriedAndTheTransferCompletes() {
+        when(accounts.credit(anyString(), eq(DESTINATION), any(), any()))
+                .thenThrow(new RemoteUnavailableException("timeout"))
+                .thenReturn(null);
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+        verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), any(), any());
+        verify(accounts, times(2)).credit(anyString(), eq(DESTINATION), any(), any());
+    }
+
+    @Test
+    void givesUpAfterThreeAttempts() {
+        when(accounts.debit(anyString(), eq(ORIGIN), any(), any())).thenThrow(new RemoteUnavailableException("caído"));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("SERVICIO_NO_DISPONIBLE");
+        verify(accounts, times(3)).debit(anyString(), eq(ORIGIN), any(), any());
+        verify(accounts, never()).credit(any(), any(), any(), any());
+    }
+
+    @Test
+    void definitiveErrorsAreNotRetried() {
+        when(accounts.debit(anyString(), eq(ORIGIN), any(), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "FONDOS_INSUFICIENTES", "Saldo insuficiente"));
+
+        service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("5000.00"), null), ANA);
+
+        verify(accounts, times(1)).debit(anyString(), eq(ORIGIN), any(), any());
+    }
+
+    @Test
     void rejectsWhenCreditFailsAfterDebit() {
         when(accounts.credit(anyString(), eq(DESTINATION), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));

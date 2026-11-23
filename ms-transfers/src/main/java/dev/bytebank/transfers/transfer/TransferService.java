@@ -1,6 +1,7 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.function.Supplier;
 
 @Service
 public class TransferService {
@@ -24,6 +26,7 @@ public class TransferService {
     private static final Logger log = LoggerFactory.getLogger(TransferService.class);
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
     private static final String DEFAULT_REJECTION_REASON = "RECHAZADA_POR_GESTOR";
+    private static final int MAX_ATTEMPTS = 3;
 
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
@@ -119,7 +122,8 @@ public class TransferService {
      */
     private Transfer execute(Transfer transfer) {
         try {
-            accountsClient.debit(transfer.ledgerReference(), transfer.getOriginIban(), transfer.getAmount(), transfer.getConcept());
+            retryIfUnavailable(() -> accountsClient.debit(transfer.ledgerReference(), transfer.getOriginIban(),
+                    transfer.getAmount(), transfer.getConcept()));
         } catch (ApiException e) {
             transfer.reject(e.getCode());
             log.info("Transferencia {} rechazada: {}", transfer.getId(), e.getCode());
@@ -128,7 +132,8 @@ public class TransferService {
 
         if (Iban.isOwnBank(transfer.getDestinationIban())) {
             try {
-                accountsClient.credit(transfer.ledgerReference(), transfer.getDestinationIban(), transfer.getAmount(), transfer.getConcept());
+                retryIfUnavailable(() -> accountsClient.credit(transfer.ledgerReference(), transfer.getDestinationIban(),
+                        transfer.getAmount(), transfer.getConcept()));
             } catch (ApiException e) {
                 log.warn("No se pudo abonar la transferencia {} en {}: {}", transfer.getId(), transfer.getDestinationIban(), e.getCode());
                 transfer.reject(e.getCode());
@@ -138,6 +143,24 @@ public class TransferService {
         transfer.complete();
         log.info("Transferencia {} completada", transfer.getId());
         return transfers.save(transfer);
+    }
+
+    /**
+     * Un timeout no dice si ms-accounts aplicó la operación. Como ms-accounts ignora una referencia repetida
+     * (misma cuenta e importe), repetir la llamada con la misma referencia es seguro y resuelve la duda.
+     * shortcut: sin espera entre intentos; si ms-accounts está caído los 3 fallan seguidos, añadir un backoff si molesta.
+     */
+    private <T> T retryIfUnavailable(Supplier<T> call) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return call.get();
+            } catch (RemoteUnavailableException e) {
+                if (attempt == MAX_ATTEMPTS) {
+                    throw e;
+                }
+                log.warn("ms-accounts no respondió (intento {}/{}), se repite con la misma referencia", attempt, MAX_ATTEMPTS);
+            }
+        }
     }
 
     private Transfer lockPending(Long id) {
